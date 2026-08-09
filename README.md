@@ -113,28 +113,37 @@ headless-сессии Claude Code.
 
 ## Версия
 
-Klyvo в бете, v0.1.0. Основное уже работает: перехват с блокировкой критичного,
+Klyvo в бете, v0.2.0. Основное уже работает: перехват с блокировкой критичного,
 запрос подтверждения на предупреждения, журнал сессии. Дальше будет много
 обновлений. Историю версий смотрите в [CHANGELOG.md](CHANGELOG.md).
 
-## Адаптеры под инструменты
+## Поддерживаемые агенты
 
 Ядро детекции (`klyvo/rules.py`) и слой журнала и подтверждения
-(`klyvo/adapter.py`) общие, под каждый инструмент нужна тонкая обёртка:
+(`klyvo/adapter.py`) общие, под каждый инструмент нужна лишь тонкая обёртка.
+Важное следствие: **Klyvo перехватывает инструмент, а не модель**. Если DeepSeek
+(или любая другая модель) работает *внутри* Claude Code, Cursor или их форка —
+он уже под защитой, отдельная поддержка не нужна.
 
-| Инструмент | Хук | Скрипт | Установка |
-|---|---|---|---|
-| Claude Code | `PreToolUse`/`PostToolUse` | `.claude/hooks/guard.py`, `journal.py` | `install_hooks.py` |
-| Cursor | `beforeShellExecution` | `adapters/cursor_guard.py` | `install_hooks.py --tool cursor` |
+| Агент | Как | Статус |
+|---|---|---|
+| Claude Code | `PreToolUse`/`PostToolUse`, `install_hooks.py` | ✅ проверено вживую |
+| DeepSeek-Code и другие форки Claude Code (Langcli, Crush, Oh My Pi) | тот же контракт хуков, `install_hooks.py --tool deepseek-code` или `--tool claude-compatible --path <settings.json>` | 🟡 формат совпадает с Claude Code, живой тест на форке ещё не проводился |
+| Cursor | `beforeShellExecution`, `install_hooks.py --tool cursor` | 🟡 адаптер по офиц. спеке, живьём не проверен |
+| Агенты на Codex-архитектуре (DeepSeek-TUI, Reasonix) | свой формат хуков | ⛔ пока не поддержаны — нужен их спек хуков |
 
-Пути в установщике вычисляются от расположения репозитория, поэтому он работает из
-любой копии — локальной или синхронизированной между машинами:
+Установщик вычисляет пути от расположения репозитория, поэтому работает из любой
+копии — локальной или синхронизированной между машинами:
 
 ```
-python3 tools/install_hooks.py                 # Claude → ~/.claude/settings.json
-python3 tools/install_hooks.py --tool cursor    # Cursor → ~/.cursor/hooks.json
+python3 tools/install_hooks.py                             # Claude Code → ~/.claude/settings.json
+python3 tools/install_hooks.py --tool deepseek-code        # DeepSeek-Code → ~/.deepseek-code/settings.json
+python3 tools/install_hooks.py --tool cursor               # Cursor → ~/.cursor/hooks.json
+python3 tools/install_hooks.py --tool claude-compatible --path ~/.мой-форк/settings.json
 # --uninstall убрать, --dry-run посмотреть без записи
 ```
 
-Cursor работает на машине пользователя, поэтому его адаптер ставится там же, где
-запущен Cursor, из локальной копии репозитория.
+Почему форки Claude Code работают тем же хуком: они наследуют формат
+`PreToolUse`/`PostToolUse` (команда в `tool_input.command`, ответ через
+`permissionDecision`). Отличается только путь к конфигу и то, что форки не
+задают `CLAUDE_PROJECT_DIR` — поэтому guard берёт корень проекта из `cwd`.

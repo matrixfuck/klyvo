@@ -63,7 +63,19 @@ python3 ~/klyvo/klyvo_rules.py list
 python3 ~/klyvo/klyvo_rules.py test "любая команда"
 ```
 
+## DeepSeek-Code и другие форки Claude Code
+Форки Claude Code (DeepSeek-Code, Langcli, Crush, Oh My Pi) используют тот же
+формат хуков, поэтому ставятся тем же скриптом — меняется только путь конфига:
+```bash
+python3 ~/klyvo/tools/install_hooks.py --tool deepseek-code   # ~/.deepseek-code/settings.json
+# форк с другим путём конфига:
+python3 ~/klyvo/tools/install_hooks.py --tool claude-compatible --path ~/.мой-форк/settings.json
+```
+Если модель DeepSeek работает **внутри** Claude Code или Cursor — отдельная
+установка не нужна, хук ловит инструмент, а не модель.
+
 ## Удалить
 ```bash
 python3 ~/klyvo/tools/install_hooks.py --uninstall
+# для форка добавь тот же --tool, что при установке
 ```

@@ -10,8 +10,13 @@ import os
 import sys
 
 
-def session_log_path():
-    base = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
+def session_log_path(data=None):
+    # Claude Code задаёт CLAUDE_PROJECT_DIR; форки (DeepSeek-Code и др.) — нет,
+    # поэтому падаем на cwd из payload, затем на текущую директорию.
+    base = os.environ.get("CLAUDE_PROJECT_DIR")
+    if not base and data:
+        base = data.get("cwd")
+    base = base or os.getcwd()
     directory = os.path.join(base, ".klyvo")
     os.makedirs(directory, exist_ok=True)
     return os.path.join(directory, "session_log.jsonl")
@@ -58,7 +63,7 @@ def main():
         "detail": summary["detail"],
         "success": success,
     }
-    with open(session_log_path(), "a", encoding="utf-8") as f:
+    with open(session_log_path(data), "a", encoding="utf-8") as f:
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
     sys.exit(0)
 

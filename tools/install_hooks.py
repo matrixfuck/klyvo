@@ -4,10 +4,17 @@
 Пути к скриптам вычисляются от расположения этого файла, поэтому корректно
 работает и на сервере, и на Маке (в синхронизированной копии репо).
 
-  python3 tools/install_hooks.py                    # Claude Code (~/.claude/settings.json)
-  python3 tools/install_hooks.py --tool cursor      # Cursor (~/.cursor/hooks.json)
+  python3 tools/install_hooks.py                        # Claude Code (~/.claude/settings.json)
+  python3 tools/install_hooks.py --tool deepseek-code   # DeepSeek-Code (~/.deepseek-code/settings.json)
+  python3 tools/install_hooks.py --tool cursor          # Cursor (~/.cursor/hooks.json)
+  python3 tools/install_hooks.py --tool claude-compatible --path <settings.json>
   python3 tools/install_hooks.py --tool cursor --uninstall
   python3 tools/install_hooks.py --dry-run
+
+Claude-совместимые форки (DeepSeek-Code, Langcli, Crush, Oh My Pi и т.п.)
+используют тот же контракт хуков, что и Claude Code, поэтому ставятся тем же
+guard.py/journal.py — отличается только путь к конфигу. Для форка с нестандартным
+путём: --tool claude-compatible --path /путь/к/settings.json
 """
 import argparse
 import json
@@ -20,7 +27,10 @@ CURSOR_GUARD = f"python3 {os.path.join(REPO_ROOT, 'adapters', 'cursor_guard.py')
 
 DEFAULT_PATH = {
     "claude": os.path.expanduser("~/.claude/settings.json"),
+    "deepseek-code": os.path.expanduser("~/.deepseek-code/settings.json"),
     "cursor": os.path.expanduser("~/.cursor/hooks.json"),
+    # claude-compatible — без дефолта: путь к конфигу форка задаётся через --path
+    "claude-compatible": None,
 }
 
 
@@ -100,21 +110,28 @@ def uninstall_cursor(cfg):
     return True
 
 
+# Claude-совместимые форки ставятся тем же guard.py/journal.py, что и Claude Code.
 HANDLERS = {
     "claude": (install_claude, uninstall_claude),
+    "deepseek-code": (install_claude, uninstall_claude),
+    "claude-compatible": (install_claude, uninstall_claude),
     "cursor": (install_cursor, uninstall_cursor),
 }
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Установка хуков Klyvo")
-    parser.add_argument("--tool", choices=["claude", "cursor"], default="claude")
+    parser.add_argument("--tool", choices=list(HANDLERS), default="claude")
     parser.add_argument("--path")
     parser.add_argument("--uninstall", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
-    path = args.path or DEFAULT_PATH[args.tool]
+    path = args.path or DEFAULT_PATH.get(args.tool)
+    if not path:
+        print(f"✗ Для --tool {args.tool} укажи путь к конфигу форка через --path "
+              f"(например: --path ~/.мой-агент/settings.json)")
+        return 1
 
     if os.path.exists(path):
         try:
