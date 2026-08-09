@@ -20,13 +20,16 @@ def check(desc, condition):
 
 
 def run(command, workspace_root):
+    # Реальный payload beforeShellExecution: корень берётся из cwd, отдельного
+    # поля workspace_roots в этом событии Cursor нет.
     payload = {
         "conversation_id": "conv-1",
         "generation_id": "gen-1",
+        "model": "test",
         "command": command,
         "cwd": workspace_root,
+        "sandbox": False,
         "hook_event_name": "beforeShellExecution",
-        "workspace_roots": [workspace_root],
     }
     r = subprocess.run(["python3", CURSOR_HOOK], input=json.dumps(payload),
                        capture_output=True, text=True)
@@ -44,8 +47,8 @@ with tempfile.TemporaryDirectory() as tmp:
     out, code = run("psql -c \"DROP TABLE users\"", tmp)
     check("критичная: exit 0", code == 0)
     check("критичная: permission == deny", isinstance(out, dict) and out.get("permission") == "deny")
-    check("критичная: есть userMessage и agentMessage",
-          isinstance(out, dict) and out.get("userMessage") and out.get("agentMessage"))
+    check("критичная: есть user_message и agent_message (snake_case, как ждёт Cursor)",
+          isinstance(out, dict) and out.get("user_message") and out.get("agent_message"))
 
     # warning-команда → permission ask (мягкое подтверждение)
     out_w, code_w = run("ALTER TABLE users DROP COLUMN email", tmp)
