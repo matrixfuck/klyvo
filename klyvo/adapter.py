@@ -10,6 +10,7 @@ import json
 import os
 
 from klyvo.rules import scan, load_config, CRITICAL
+from klyvo.redact import redact
 
 
 def evaluate(command: str, project_root: str):
@@ -35,7 +36,7 @@ def log_finding(project_root, command, findings, tool, decision, session_id=None
         "tool": tool,
         "session_id": session_id,
         "cwd": cwd,
-        "command": command,
+        "command": redact(command),  # секреты не должны оседать в журнале
         "rules_matched": [name for name, _, _ in findings],
         "severities": [sev for _, sev, _ in findings],
         "reasons": [desc for _, _, desc in findings],

@@ -9,6 +9,17 @@ import json
 import os
 import sys
 
+# Общий редактор секретов из ядра klyvo (рядом в репо). Если импорт не удался —
+# журнал всё равно работает, просто без маскировки.
+CODE_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if CODE_ROOT not in sys.path:
+    sys.path.insert(0, CODE_ROOT)
+try:
+    from klyvo.redact import redact
+except Exception:
+    def redact(text):
+        return text
+
 
 def session_log_path(data=None):
     # Claude Code задаёт CLAUDE_PROJECT_DIR; форки (DeepSeek-Code и др.) — нет,
@@ -25,7 +36,7 @@ def session_log_path(data=None):
 def summarize(tool_name: str, tool_input: dict):
     """Короткое человекочитаемое описание одного действия."""
     if tool_name == "Bash":
-        return {"kind": "command", "detail": tool_input.get("command", "")}
+        return {"kind": "command", "detail": redact(tool_input.get("command", ""))}
     if tool_name in ("Edit", "MultiEdit"):
         return {"kind": "edit", "detail": tool_input.get("file_path", "")}
     if tool_name == "Write":
