@@ -5,6 +5,7 @@
   python3 klyvo_rules.py test "DROP TABLE x"  # что сработает на команде и почему
 """
 import argparse
+import json
 import os
 import sys
 
@@ -57,18 +58,35 @@ def cmd_test(args):
     return 0
 
 
+def cmd_scan(args):
+    """Машиночитаемый результат для адаптеров (напр. плагина opencode)."""
+    findings = scan(args.command, load_config(base_dir()))
+    decision = "allow"
+    if findings:
+        decision = "deny" if any(sev == CRITICAL for _, sev, _ in findings) else "ask"
+    print(json.dumps({
+        "decision": decision,
+        "findings": [{"name": n, "severity": s, "description": d} for n, s, d in findings],
+    }, ensure_ascii=False))
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Правила Klyvo")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list", help="показать действующие правила")
     t = sub.add_parser("test", help="проверить команду")
     t.add_argument("command", help="команда для проверки")
+    s = sub.add_parser("scan", help="проверить команду, вывести JSON (decision + findings)")
+    s.add_argument("command", help="команда для проверки")
     args = parser.parse_args(argv)
 
     if args.cmd == "list":
         return cmd_list(args)
     if args.cmd == "test":
         return cmd_test(args)
+    if args.cmd == "scan":
+        return cmd_scan(args)
     return 1
 
 

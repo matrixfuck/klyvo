@@ -77,8 +77,9 @@ with tempfile.TemporaryDirectory() as adir:
     sig = hmac.new(bytes.fromhex(auth["secret"]), exp.encode(), hashlib.sha256).hexdigest()
     check("истёкшая сессия невалидна", not klyvo_web.valid_session(auth, f"{exp}.{sig}"))
 
-    del os.environ["KLYVO_WEB_AUTH"]
+    os.environ["KLYVO_WEB_AUTH"] = os.path.join(adir, "nonexistent.json")
     check("без файла — режим без входа (auth None)", klyvo_web.load_auth() is None)
+    del os.environ["KLYVO_WEB_AUTH"]
 
 print(f"\n{'ВСЕ ТЕСТЫ ПРОШЛИ' if failures == 0 else f'{failures} ПРОВАЛЕННЫХ ТЕСТОВ'}")
 sys.exit(1 if failures else 0)

@@ -129,10 +129,10 @@ headless-сессии Claude Code.
 
 ## Версия
 
-Klyvo в бете, v0.5.0. Основное уже работает: перехват с блокировкой критичного,
+Klyvo в бете, v0.6.0. Основное уже работает: перехват с блокировкой критичного,
 запрос подтверждения на предупреждения, журнал сессии, веб-дашборд с входом,
-лендинг [klyvo.tech](https://klyvo.tech). Дальше будет много обновлений. Историю
-версий смотрите в [CHANGELOG.md](CHANGELOG.md).
+лендинг [klyvo.tech](https://klyvo.tech), адаптеры под 6 агентов. Дальше будет
+много обновлений. Историю версий смотрите в [CHANGELOG.md](CHANGELOG.md).
 
 ## Поддерживаемые агенты
 
@@ -145,9 +145,12 @@ Klyvo в бете, v0.5.0. Основное уже работает: перех�
 | Агент | Как | Статус |
 |---|---|---|
 | Claude Code | `PreToolUse`/`PostToolUse`, `install_hooks.py` | ✅ проверено вживую |
-| DeepSeek-Code и другие форки Claude Code (Langcli, Crush, Oh My Pi) | тот же контракт хуков, `install_hooks.py --tool deepseek-code` или `--tool claude-compatible --path <settings.json>` | 🟡 формат совпадает с Claude Code, живой тест на форке ещё не проводился |
-| Cursor | `beforeShellExecution`, `install_hooks.py --tool cursor` | 🟡 адаптер по офиц. спеке, живьём не проверен |
-| Агенты на Codex-архитектуре (DeepSeek-TUI, Reasonix) | свой формат хуков | ⛔ пока не поддержаны — нужен их спек хуков |
+| DeepSeek-Code и форки Claude Code (Langcli, Crush, Oh My Pi) | тот же контракт хуков, `--tool deepseek-code` или `--tool claude-compatible --path <settings.json>` | 🟡 формат совпадает с Claude Code, живьём не проверен |
+| Kimi Code CLI | `[[hooks]]` в `config.toml`, тот же `guard.py` (формат хуков как у Claude Code), `--tool kimi` | 🟡 по офиц. спеке, живьём не проверен |
+| Codex CLI | свой адаптер (плоский `deny`), `hooks.json` + флаг `codex_hooks`, `--tool codex` | 🟡 по офиц. спеке, живьём не проверен |
+| Cursor | `beforeShellExecution`, `--tool cursor` | 🟡 по офиц. спеке, живьём не проверен |
+| opencode | плагин на JS (`tool.execute.before`), зовёт ядро правил, `--tool opencode` | 🟡 экспериментально, живьём не проверен |
+| Агенты на Codex-архитектуре (DeepSeek-TUI, Reasonix) | свой формат хуков | ⛔ пока не поддержаны |
 
 Установщик вычисляет пути от расположения репозитория, поэтому работает из любой
 копии — локальной или синхронизированной между машинами:
@@ -155,7 +158,10 @@ Klyvo в бете, v0.5.0. Основное уже работает: перех�
 ```
 python3 tools/install_hooks.py                             # Claude Code → ~/.claude/settings.json
 python3 tools/install_hooks.py --tool deepseek-code        # DeepSeek-Code → ~/.deepseek-code/settings.json
+python3 tools/install_hooks.py --tool kimi                 # Kimi Code → ~/.kimi-code/config.toml
+python3 tools/install_hooks.py --tool codex                # Codex CLI → ~/.codex/hooks.json + флаг
 python3 tools/install_hooks.py --tool cursor               # Cursor → ~/.cursor/hooks.json
+python3 tools/install_hooks.py --tool opencode             # opencode → плагин на JS
 python3 tools/install_hooks.py --tool claude-compatible --path ~/.мой-форк/settings.json
 # --uninstall убрать, --dry-run посмотреть без записи
 ```

@@ -3,6 +3,25 @@
 Формат — [SemVer](https://semver.org/lang/ru/): `major.minor.patch`.
 Пока версия ниже 1.0.0, ломающие изменения возможны в любом `minor`.
 
+## v0.6.0 — 2026-08-10
+
+Поддержка Codex, Kimi Code и opencode — всего 6 агентов.
+
+- **Codex CLI** (`--tool codex`): отдельный адаптер `adapters/codex_guard.py`.
+  Codex строго отвергает лишние поля и реагирует только на `deny`, поэтому ответ
+  плоский (`{"permissionDecision":"deny",…}`), без hookSpecificOutput-обёртки;
+  предупреждения пропускаются, но пишутся в журнал. Установщик кладёт `hooks.json`
+  и включает `[features] codex_hooks = true` в `config.toml`.
+- **Kimi Code CLI** (`--tool kimi`): формат хуков совпадает с Claude Code, поэтому
+  используется тот же `guard.py`/`journal.py`. Установщик пишет `[[hooks]]` в
+  `config.toml`.
+- **opencode** (`--tool opencode`): плагин на JS (`tool.execute.before`), который
+  зовёт ядро правил через новый CLI `klyvo_rules.py scan` (JSON-вывод) и блокирует
+  критичное через `throw`.
+- Хуки берут корень проекта из `cwd`, если `CLAUDE_PROJECT_DIR` не задан.
+- Тесты `tests/test_agents.py` (Codex-адаптер, установщики Codex/Kimi/opencode,
+  CLI scan). Все агенты по спеке — живьём пока не проверены.
+
 ## v0.5.0 — 2026-08-10
 
 Лендинг klyvo.tech и удобный вход в дашборд.
