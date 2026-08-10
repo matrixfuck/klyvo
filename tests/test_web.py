@@ -46,6 +46,9 @@ with tempfile.TemporaryDirectory() as tmp:
     check("1 действие сессии", d["stats"]["session_actions"] == 1)
     check("top_rules не пуст", len(d["top_rules"]) == 2)
     check("свежие блоки сверху", d["blocks"][0]["ts"] == "2026-08-09T10:01:00")
+    check("rules_active > 0", d["stats"]["rules_active"] > 0)
+    check("rules — непустой список с нужными полями",
+          len(d["rules"]) > 0 and all({"name", "severity", "description", "count"} <= set(r) for r in d["rules"]))
 
     # битые строки в jsonl не роняют сбор
     with open(os.path.join(kdir, "journal.jsonl"), "a", encoding="utf-8") as f:

@@ -28,6 +28,13 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qs
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from klyvo.rules import effective_rules, load_config
+except Exception:  # дашборд работает и без списка правил
+    effective_rules = None
+    load_config = None
+
 
 # ── Сбор данных ──────────────────────────────────────────────────────────────
 def _read_jsonl(path):
@@ -71,11 +78,37 @@ def collect(project_root):
             "warning": warning,
             "rules_distinct": len(rule_counter),
             "session_actions": len(session),
+            "rules_active": len(_rules_catalog(project_root)),
         },
         "top_rules": rule_counter.most_common(5),
-        "blocks": list(reversed(blocks))[:100],   # свежие сверху
-        "session": list(reversed(session))[:100],
+        "rules": _rules_with_counts(project_root, rule_counter),
+        "blocks": list(reversed(blocks))[:200],   # свежие сверху
+        "session": list(reversed(session))[:200],
     }
+
+
+def _rules_catalog(project_root):
+    """Действующие правила: [(name, severity, description)]. + 2 эвристики WHERE."""
+    if effective_rules is None or load_config is None:
+        return []
+    try:
+        cfg = load_config(project_root)
+        rules = [(n, s, d) for n, s, _p, d in effective_rules(cfg)]
+    except Exception:
+        return []
+    disabled = set((cfg.get("disabled_rules") or []))
+    for name, desc in (("sql_delete_no_where", "DELETE без ограничивающего WHERE"),
+                       ("sql_update_no_where", "UPDATE без ограничивающего WHERE")):
+        if name not in disabled:
+            rules.append((name, "critical", desc))
+    return rules
+
+
+def _rules_with_counts(project_root, rule_counter):
+    out = [{"name": n, "severity": s, "description": d, "count": rule_counter.get(n, 0)}
+           for n, s, d in _rules_catalog(project_root)]
+    out.sort(key=lambda r: (-r["count"], 0 if r["severity"] == "critical" else 1, r["name"]))
+    return out
 
 
 # ── Авторизация (опциональная, на стандартной библиотеке) ────────────────────
@@ -182,75 +215,210 @@ PAGE = """<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Klyvo — дашборд</title>
 <style>
-:root { color-scheme: dark; --bg:#0d1017; --card:#141a22; --fg:#e9edf3; --mut:#8b95a6;
-  --line:#222c38; --crit:#ff5b52; --warn:#f5b544; }
-* { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--fg);
-  font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; }
-.wrap { max-width:960px; margin:0 auto; padding:24px 16px 60px; }
-header { display:flex; align-items:baseline; gap:12px; margin-bottom:4px; }
-h1 { font-size:22px; margin:0; font-family:ui-monospace,Menlo,monospace; }
-.proj { color:var(--mut); font-size:13px; word-break:break-all; }
-.top { display:flex; align-items:center; gap:14px; margin:6px 0 8px; }
-.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; margin:20px 0; }
-.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
-.card .n { font-size:26px; font-weight:600; } .card .l { color:var(--mut); font-size:13px; }
-.card.crit .n { color:var(--crit); } .card.warn .n { color:var(--warn); }
-h2 { font-size:15px; text-transform:uppercase; letter-spacing:.04em; color:var(--mut); margin:28px 0 10px; }
-table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line);
-  border-radius:10px; overflow:hidden; font-size:13px; }
-th,td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
-th { color:var(--mut); font-weight:500; } tr:last-child td { border-bottom:none; }
-code { font-family:ui-monospace,Menlo,Consolas,monospace; word-break:break-all; }
-.badge { display:inline-block; padding:1px 8px; border-radius:20px; font-size:12px; font-weight:600; }
-.deny { background:rgba(255,91,82,.15); color:var(--crit); } .ask { background:rgba(245,181,68,.15); color:var(--warn); }
-.empty { color:var(--mut); background:var(--card); border:1px dashed var(--line); border-radius:10px;
-  padding:20px; text-align:center; } .rules { color:var(--mut); }
-button { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px;
-  padding:6px 12px; cursor:pointer; font-size:13px; } button:hover { border-color:var(--warn); }
-.foot { color:var(--mut); font-size:12px; margin-top:30px; }
-.foot a { color:var(--mut); }
+:root{color-scheme:dark;--ink:#0d1017;--panel:#141a22;--panel2:#0f151d;--line:#222c38;
+ --fg:#e9edf3;--mut:#8b95a6;--faint:#5c6675;--guard:#f5b544;--danger:#ff5b52;--safe:#57cc9a;
+ --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+ --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5}
+.wrap{max-width:1040px;margin:0 auto;padding:0 20px 70px}
+.mono{font-family:var(--mono)}
+header{position:sticky;top:0;z-index:10;background:rgba(13,16,23,.82);backdrop-filter:blur(10px);
+ border-bottom:1px solid var(--line);margin:0 -20px 22px;padding:0 20px}
+.hbar{display:flex;align-items:center;gap:14px;height:60px;max-width:1040px;margin:0 auto}
+.brand{font-family:var(--mono);font-weight:700;font-size:19px;letter-spacing:-.02em;display:flex;align-items:center;gap:9px}
+.led{width:9px;height:9px;border-radius:50%;background:var(--safe);box-shadow:0 0 10px var(--safe)}
+.brand small{color:var(--faint);font-weight:400;font-size:13px;letter-spacing:0}
+.proj{color:var(--faint);font-family:var(--mono);font-size:12px;margin-left:2px;
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:32ch}
+.spacer{flex:1}
+.hctl{display:flex;align-items:center;gap:14px}
+.sw{display:inline-flex;align-items:center;gap:8px;color:var(--mut);font-size:13px;cursor:pointer;user-select:none}
+.sw input{position:absolute;opacity:0;pointer-events:none}
+.track{width:34px;height:19px;border-radius:20px;background:var(--panel);border:1px solid var(--line);position:relative;transition:.15s}
+.track::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--faint);transition:.15s}
+.sw input:checked + .track{background:rgba(87,204,154,.25);border-color:var(--safe)}
+.sw input:checked + .track::after{transform:translateX(15px);background:var(--safe)}
+.lnk{color:var(--mut);font-size:13px;text-decoration:none}.lnk:hover{color:var(--fg)}
+button.btn{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;
+ padding:7px 13px;cursor:pointer;font-size:13px;font-family:var(--mono)}
+button.btn:hover{border-color:var(--guard);color:var(--guard)}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 17px}
+.card .n{font-size:28px;font-weight:600;font-family:var(--mono);line-height:1}
+.card .l{color:var(--mut);font-size:13px;margin-top:6px}
+.card.crit .n{color:var(--danger)}.card.warn .n{color:var(--guard)}
+
+.split{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 17px;margin-bottom:22px}
+.split .lab{display:flex;justify-content:space-between;color:var(--mut);font-size:13px;margin-bottom:9px}
+.bar{height:10px;border-radius:6px;background:var(--panel2);overflow:hidden;display:flex}
+.bar i{display:block;height:100%}
+.bar .d{background:var(--danger)}.bar .a{background:var(--guard)}
+.legend{display:flex;gap:18px;margin-top:10px;color:var(--mut);font-size:12.5px}
+.legend b{color:var(--fg);font-family:var(--mono)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.dot.d{background:var(--danger)}.dot.a{background:var(--guard)}.dot.c{background:var(--danger)}.dot.w{background:var(--guard)}
+
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.tab{background:none;border:none;color:var(--mut);font-family:var(--mono);font-size:14px;padding:9px 14px;
+ cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab:hover{color:var(--fg)}
+.tab[aria-selected="true"]{color:var(--guard);border-bottom-color:var(--guard)}
+.tab .c{color:var(--faint);font-size:12px;margin-left:6px}
+
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.search{flex:1;min-width:180px;background:var(--panel);border:1px solid var(--line);border-radius:9px;
+ color:var(--fg);font-family:var(--mono);font-size:13px;padding:9px 12px}
+.search:focus{outline:none;border-color:var(--guard)}
+.chips{display:flex;gap:6px}
+.chip{background:var(--panel);border:1px solid var(--line);color:var(--mut);border-radius:20px;
+ padding:6px 13px;font-size:12.5px;font-family:var(--mono);cursor:pointer}
+.chip[aria-pressed="true"]{color:var(--ink);background:var(--guard);border-color:var(--guard);font-weight:600}
+
+table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);
+ border-radius:12px;overflow:hidden;font-size:13px}
+th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:rgba(255,255,255,.02)}
+td code{font-family:var(--mono);word-break:break-all;color:var(--fg)}
+.t{color:var(--faint);font-family:var(--mono);font-size:12px;white-space:nowrap}
+.rules{color:var(--mut);font-family:var(--mono);font-size:12px}
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600;font-family:var(--mono)}
+.badge.deny{background:rgba(255,91,82,.15);color:var(--danger)}
+.badge.ask{background:rgba(245,181,68,.15);color:var(--guard)}
+.kind{color:var(--mut);font-family:var(--mono);font-size:12px}
+.cnt{display:flex;align-items:center;gap:8px}
+.cnt .mini{height:6px;border-radius:4px;background:var(--guard);min-width:2px}
+.cnt.crit .mini{background:var(--danger)}
+.empty{color:var(--mut);background:var(--panel);border:1px dashed var(--line);border-radius:12px;padding:28px;text-align:center}
+.foot{color:var(--faint);font-size:12px;margin-top:26px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+@media(max-width:600px){.proj{display:none}.hctl .rtext{display:none}}
 </style></head>
-<body><div class="wrap">
-<header><h1>klyvo</h1><span class="proj" id="proj"></span></header>
-<div class="top"><button onclick="load()">Обновить</button><a href="logout" style="color:var(--mut);font-size:13px">Выйти</a></div>
-<div class="cards" id="cards"></div>
-<h2>Топ правил</h2><div id="top"></div>
-<h2>Перехваченные команды</h2><div id="blocks"></div>
-<h2>Активность сессии</h2><div id="session"></div>
-<p class="foot">Данные читаются локально из <code>.klyvo/</code>. Ничего не отправляется наружу.</p>
+<body>
+<header><div class="hbar">
+  <span class="brand"><span class="led"></span>klyvo <small>дашборд</small></span>
+  <span class="proj mono" id="proj"></span>
+  <span class="spacer"></span>
+  <span class="hctl">
+    <label class="sw"><input type="checkbox" id="auto"><span class="track"></span><span class="rtext">авто</span></label>
+    <button class="btn" id="refresh">Обновить</button>
+    <a class="lnk" href="logout">Выйти</a>
+  </span>
+</div></header>
+
+<div class="wrap">
+  <div class="cards" id="cards"></div>
+  <div class="split" id="split"></div>
+  <div class="tabs" id="tabs"></div>
+  <div class="toolbar">
+    <input class="search" id="q" placeholder="Поиск…" autocomplete="off">
+    <div class="chips" id="chips"></div>
+  </div>
+  <div id="view"></div>
+  <div class="foot">
+    <span>Данные читаются локально из <code class="mono">.klyvo/</code>. Ничего не отправляется наружу.</span>
+    <span id="upd"></span>
+  </div>
 </div>
+
 <script>
-const esc = s => (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-async function load() {
-  const d = await (await fetch('api/data')).json();  // относительный путь — работает и под префиксом
-  document.getElementById('proj').textContent = d.project;
-  const s = d.stats;
-  document.getElementById('cards').innerHTML = [
-    ['Перехвачено', s.blocks_total, ''], ['Критичных', s.critical, 'crit'],
-    ['Предупреждений', s.warning, 'warn'], ['Правил сработало', s.rules_distinct, ''],
-    ['Действий агента', s.session_actions, '']
-  ].map(([l,n,c]) => `<div class="card ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+const esc = s => (s??'').toString().replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const S = {data:null, tab:'blocks', q:'', flt:'all', auto:false, at:0};
+let timer=null;
 
-  document.getElementById('top').innerHTML = d.top_rules.length
-    ? '<table><tr><th>Правило</th><th>Срабатываний</th></tr>' +
-      d.top_rules.map(([r,c]) => `<tr><td><code>${esc(r)}</code></td><td>${c}</td></tr>`).join('') + '</table>'
-    : '<div class="empty">Пока ничего не перехвачено.</div>';
+function rel(iso){
+  if(!iso) return '';
+  const t=Date.parse(iso.endsWith('Z')||iso.includes('+')?iso:iso+'Z');
+  if(isNaN(t)) return esc(iso.slice(0,19).replace('T',' '));
+  const s=Math.max(0,(Date.now()-t)/1000);
+  if(s<60) return 'только что';
+  if(s<3600) return Math.floor(s/60)+' мин назад';
+  if(s<86400) return Math.floor(s/3600)+' ч назад';
+  if(s<7*86400) return Math.floor(s/86400)+' дн назад';
+  return esc(iso.slice(0,10));
+}
+const full = iso => (iso||'').slice(0,19).replace('T',' ');
 
-  document.getElementById('blocks').innerHTML = d.blocks.length
-    ? '<table><tr><th>Время</th><th>Решение</th><th>Команда</th><th>Правила</th></tr>' +
-      d.blocks.map(b => `<tr><td>${esc((b.ts||'').slice(0,19).replace('T',' '))}</td>
+async function fetchData(){
+  try{
+    const r=await fetch('api/data'); if(r.status===401||r.redirected){location.href='login';return;}
+    S.data=await r.json(); S.at=Date.now(); render();
+  }catch(e){}
+}
+
+function render(){
+  const d=S.data; if(!d) return;
+  document.getElementById('proj').textContent=d.project;
+  const s=d.stats;
+  document.getElementById('cards').innerHTML=[
+    ['Перехвачено',s.blocks_total,''],['Критичных',s.critical,'crit'],
+    ['Предупреждений',s.warning,'warn'],['Действий агента',s.session_actions,''],
+    ['Правил активно',s.rules_active,'']
+  ].map(([l,n,c])=>`<div class="card ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+
+  const tot=s.critical+s.warning;
+  document.getElementById('split').innerHTML = tot
+   ? `<div class="lab"><span>Соотношение решений</span><span>${tot} перехватов</span></div>
+      <div class="bar"><i class="d" style="width:${s.critical/tot*100}%"></i><i class="a" style="width:${s.warning/tot*100}%"></i></div>
+      <div class="legend"><span><span class="dot d"></span>заблокировано <b>${s.critical}</b></span>
+      <span><span class="dot a"></span>подтверждение <b>${s.warning}</b></span></div>`
+   : `<div class="lab"><span>Соотношение решений</span></div><div class="empty">Опасных команд ещё не перехвачено.</div>`;
+
+  const tabs=[['blocks','Перехваты',d.blocks.length],['rules','Правила',d.rules.length],['session','Активность',d.session.length]];
+  document.getElementById('tabs').innerHTML=tabs.map(([k,l,c])=>
+    `<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}<span class="c">${c}</span></button>`).join('');
+
+  const chips=document.getElementById('chips');
+  if(S.tab==='blocks'){chips.style.display='';chips.innerHTML=[['all','все'],['deny','deny'],['ask','ask']].map(([k,l])=>
+    `<button class="chip" data-flt="${k}" aria-pressed="${S.flt===k}">${l}</button>`).join('');}
+  else chips.style.display='none';
+
+  const q=S.q.toLowerCase();
+  let html='';
+  if(S.tab==='blocks'){
+    let rows=d.blocks.filter(b=>S.flt==='all'||b.decision===S.flt)
+      .filter(b=>!q||(b.command||'').toLowerCase().includes(q)||(b.rules_matched||[]).join(' ').toLowerCase().includes(q));
+    html = rows.length
+     ? `<table><thead><tr><th>Время</th><th>Решение</th><th>Команда</th><th>Правила</th></tr></thead><tbody>`+
+       rows.map(b=>`<tr><td class="t" title="${full(b.ts)}">${rel(b.ts)}</td>
         <td><span class="badge ${b.decision==='deny'?'deny':'ask'}">${esc(b.decision)}</span></td>
         <td><code>${esc(b.command)}</code></td>
-        <td class="rules">${esc((b.rules_matched||[]).join(', '))}</td></tr>`).join('') + '</table>'
-    : '<div class="empty">Опасных команд не перехвачено.</div>';
-
-  document.getElementById('session').innerHTML = d.session.length
-    ? '<table><tr><th>Время</th><th>Тип</th><th>Детали</th></tr>' +
-      d.session.map(e => `<tr><td>${esc((e.ts||'').slice(0,19).replace('T',' '))}</td>
-        <td>${esc(e.kind||e.tool)}</td><td><code>${esc(e.detail)}</code></td></tr>`).join('') + '</table>'
-    : '<div class="empty">Журнал сессии пуст.</div>';
+        <td class="rules">${esc((b.rules_matched||[]).join(', '))}</td></tr>`).join('')+`</tbody></table>`
+     : `<div class="empty">${d.blocks.length?'Ничего не найдено.':'Опасных команд не перехвачено.'}</div>`;
+  } else if(S.tab==='rules'){
+    let rows=d.rules.filter(r=>!q||r.name.toLowerCase().includes(q)||(r.description||'').toLowerCase().includes(q));
+    const mx=Math.max(1,...d.rules.map(r=>r.count));
+    html = rows.length
+     ? `<table><thead><tr><th>Правило</th><th>Уровень</th><th>Описание</th><th>Сработало</th></tr></thead><tbody>`+
+       rows.map(r=>`<tr><td><code>${esc(r.name)}</code></td>
+        <td><span class="dot ${r.severity==='critical'?'c':'w'}"></span><span class="kind">${r.severity==='critical'?'critical':'warning'}</span></td>
+        <td class="kind">${esc(r.description)}</td>
+        <td><div class="cnt ${r.severity==='critical'?'crit':''}"><span class="mini" style="width:${r.count/mx*60}px"></span><span class="mono">${r.count}</span></div></td></tr>`).join('')+`</tbody></table>`
+     : `<div class="empty">Правил не найдено.</div>`;
+  } else {
+    let rows=d.session.filter(e=>!q||(e.detail||'').toLowerCase().includes(q)||(e.kind||e.tool||'').toLowerCase().includes(q));
+    html = rows.length
+     ? `<table><thead><tr><th>Время</th><th>Тип</th><th>Детали</th></tr></thead><tbody>`+
+       rows.map(e=>`<tr><td class="t" title="${full(e.ts)}">${rel(e.ts)}</td>
+        <td class="kind">${esc(e.kind||e.tool)}</td><td><code>${esc(e.detail)}</code></td></tr>`).join('')+`</tbody></table>`
+     : `<div class="empty">${d.session.length?'Ничего не найдено.':'Журнал сессии пуст.'}</div>`;
+  }
+  document.getElementById('view').innerHTML=html;
+  document.getElementById('upd').textContent='обновлено '+rel(new Date(S.at).toISOString());
 }
-load();
+
+document.getElementById('tabs').addEventListener('click',e=>{
+  const b=e.target.closest('[data-tab]'); if(!b)return; S.tab=b.dataset.tab; S.q=''; document.getElementById('q').value=''; render();});
+document.getElementById('chips').addEventListener('click',e=>{
+  const b=e.target.closest('[data-flt]'); if(!b)return; S.flt=b.dataset.flt; render();});
+document.getElementById('q').addEventListener('input',e=>{S.q=e.target.value; render();});
+document.getElementById('refresh').addEventListener('click',fetchData);
+document.getElementById('auto').addEventListener('change',e=>{
+  S.auto=e.target.checked; clearInterval(timer);
+  if(S.auto) timer=setInterval(fetchData,6000);});
+fetchData();
 </script></body></html>"""
 
 
