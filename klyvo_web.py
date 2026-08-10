@@ -106,7 +106,7 @@ button { background:var(--card); color:var(--fg); border:1px solid var(--line); 
 <script>
 const esc = s => (s??'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 async function load() {
-  const d = await (await fetch('/api/data')).json();
+  const d = await (await fetch('api/data')).json();  // относительный путь — работает и под префиксом
   document.getElementById('proj').textContent = d.project;
   const s = d.stats;
   document.getElementById('cards').innerHTML = [
