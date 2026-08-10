@@ -53,5 +53,32 @@ with tempfile.TemporaryDirectory() as tmp:
     d = klyvo_web.collect(tmp)
     check("битая строка пропущена, не падаем", d["stats"]["blocks_total"] == 2)
 
+# ── авторизация (пароль + сессии) ──
+import hashlib
+import hmac
+import time as _time
+
+with tempfile.TemporaryDirectory() as adir:
+    os.environ["KLYVO_WEB_AUTH"] = os.path.join(adir, "auth.json")
+    klyvo_web.set_password("admin", "correct horse battery")
+    auth = klyvo_web.load_auth()
+    check("auth-файл создан и читается", bool(auth) and auth["user"] == "admin")
+    check("хэш пароля, а не сам пароль", "correct horse battery" not in json.dumps(auth))
+    check("верный пароль проходит", klyvo_web.verify_password(auth, "correct horse battery"))
+    check("неверный пароль не проходит", not klyvo_web.verify_password(auth, "wrong"))
+
+    tok = klyvo_web.make_session(auth)
+    check("своя сессия валидна", klyvo_web.valid_session(auth, tok))
+    tampered = tok[:-1] + ("0" if tok[-1] != "0" else "1")
+    check("подделанная подпись невалидна", not klyvo_web.valid_session(auth, tampered))
+    check("пустая сессия невалидна", not klyvo_web.valid_session(auth, ""))
+
+    exp = str(int(_time.time()) - 10)
+    sig = hmac.new(bytes.fromhex(auth["secret"]), exp.encode(), hashlib.sha256).hexdigest()
+    check("истёкшая сессия невалидна", not klyvo_web.valid_session(auth, f"{exp}.{sig}"))
+
+    del os.environ["KLYVO_WEB_AUTH"]
+    check("без файла — режим без входа (auth None)", klyvo_web.load_auth() is None)
+
 print(f"\n{'ВСЕ ТЕСТЫ ПРОШЛИ' if failures == 0 else f'{failures} ПРОВАЛЕННЫХ ТЕСТОВ'}")
 sys.exit(1 if failures else 0)

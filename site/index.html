@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Klyvo — страж базы данных для AI-агентов</title>
+<meta name="description" content="Klyvo перехватывает разрушительные команды с базой данных до того, как их выполнит AI-агент. Локально, ничего не отправляет наружу.">
+<style>
+  :root{
+    --ink:#0d1017; --panel:#141a22; --panel-2:#0f151d; --line:#222c38;
+    --fg:#e9edf3; --muted:#8b95a6; --faint:#5c6675;
+    --guard:#f5b544; --danger:#ff5b52; --safe:#57cc9a;
+    --mono:"SF Mono","JetBrains Mono","Fira Code",ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --wrap:1080px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--ink);color:var(--fg);font-family:var(--sans);
+    font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;
+    background-image:radial-gradient(60rem 40rem at 78% -10%,rgba(245,181,68,.06),transparent 60%),
+      radial-gradient(50rem 40rem at 0% 8%,rgba(255,91,82,.05),transparent 55%);}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--wrap);margin:0 auto;padding:0 24px}
+  .mono{font-family:var(--mono)}
+
+  /* header */
+  header{position:sticky;top:0;z-index:20;backdrop-filter:blur(10px);
+    background:rgba(13,16,23,.72);border-bottom:1px solid var(--line)}
+  .bar{display:flex;align-items:center;justify-content:space-between;height:60px}
+  .brand{font-family:var(--mono);font-weight:700;letter-spacing:-.02em;font-size:18px;display:flex;align-items:center;gap:9px}
+  .led{width:9px;height:9px;border-radius:50%;background:var(--safe);box-shadow:0 0 10px var(--safe)}
+  nav{display:flex;align-items:center;gap:28px}
+  nav a{color:var(--muted);font-size:14px}
+  nav a:hover{color:var(--fg)}
+  .btn{font-family:var(--mono);font-size:14px;padding:9px 16px;border-radius:8px;
+    border:1px solid var(--line);color:var(--fg);transition:.15s;white-space:nowrap}
+  .btn:hover{border-color:var(--guard);color:var(--guard)}
+  .btn.solid{background:var(--guard);color:#1a1205;border-color:var(--guard);font-weight:600}
+  .btn.solid:hover{background:#ffca6a}
+  nav .btn{color:var(--fg)}
+  @media(max-width:720px){nav .navlink{display:none}}
+
+  /* hero */
+  .hero{padding:76px 0 40px;display:grid;grid-template-columns:1.05fr 1fr;gap:56px;align-items:center}
+  .eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--guard);display:inline-flex;align-items:center;gap:10px;margin-bottom:22px}
+  .eyebrow::before{content:"";width:26px;height:1px;background:var(--guard)}
+  h1{font-family:var(--mono);font-weight:700;letter-spacing:-.03em;line-height:1.04;
+    font-size:clamp(34px,5.4vw,58px);margin:0 0 20px}
+  h1 .strike{color:var(--danger);position:relative;white-space:nowrap}
+  h1 .strike::after{content:"";position:absolute;left:-2px;right:-2px;top:54%;height:3px;
+    background:var(--danger);transform:scaleX(0);transform-origin:left;
+    animation:strike 1s cubic-bezier(.2,.7,.2,1) 1.1s forwards}
+  .lede{color:var(--muted);font-size:18px;max-width:34em;margin:0 0 30px}
+  .cta{display:flex;gap:14px;flex-wrap:wrap}
+  .hint{margin-top:18px;font-family:var(--mono);font-size:13px;color:var(--faint)}
+
+  /* signature terminal */
+  .term{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);
+    border-radius:14px;overflow:hidden;box-shadow:0 30px 80px -30px rgba(0,0,0,.8)}
+  .term-top{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);
+    font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+  .term-top .dot{width:11px;height:11px;border-radius:50%;background:#2a3340}
+  .term-top .tag{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--safe)}
+  .term-top .tag .led{width:7px;height:7px}
+  .term-body{padding:20px 18px 24px;font-family:var(--mono);font-size:13.5px;line-height:1.9}
+  .ln{white-space:pre-wrap;word-break:break-word}
+  .pr{color:var(--faint)}
+  .ok{color:var(--safe)}
+  .cmd{color:var(--fg)}
+  .row{opacity:0;transform:translateY(6px);animation:rise .5s forwards}
+  .row:nth-child(1){animation-delay:.15s}
+  .row:nth-child(2){animation-delay:.5s}
+  .row:nth-child(3){animation-delay:1.15s}
+  .row:nth-child(4){animation-delay:1.5s}
+  .block{margin-top:10px;border-left:2px solid var(--danger);background:rgba(255,91,82,.07);
+    padding:10px 14px;border-radius:0 8px 8px 0}
+  .block .head{color:var(--danger);font-weight:700}
+  .block .why{color:var(--muted);font-size:12.5px;margin-top:3px}
+  .caret{display:inline-block;width:8px;height:15px;background:var(--guard);vertical-align:-2px;
+    margin-left:2px;animation:blink 1.1s steps(1) infinite}
+
+  /* sections */
+  section{padding:60px 0;border-top:1px solid var(--line)}
+  .kicker{font-family:var(--mono);font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:14px}
+  h2{font-family:var(--mono);font-weight:700;letter-spacing:-.02em;font-size:clamp(24px,3.4vw,32px);margin:0 0 16px}
+  .sub{color:var(--muted);max-width:46em;margin:0 0 30px}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
+  .card h3{font-family:var(--mono);font-size:16px;margin:0 0 8px}
+  .card p{color:var(--muted);font-size:14.5px;margin:0}
+
+  .catch{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 16px 15px}
+  .chip .t{font-family:var(--mono);font-size:14px;color:var(--fg);margin-bottom:5px}
+  .chip .d{color:var(--faint);font-size:13px}
+  .chip code{color:var(--danger);font-family:var(--mono)}
+
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;counter-reset:s}
+  .step{position:relative;padding-top:14px;border-top:2px solid var(--guard)}
+  .step .no{font-family:var(--mono);color:var(--guard);font-size:13px;letter-spacing:.1em}
+  .step h4{font-family:var(--mono);font-size:15px;margin:6px 0 8px}
+  .step pre{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
+    padding:11px 13px;overflow-x:auto;margin:0;font-family:var(--mono);font-size:12.5px;color:var(--fg)}
+  .step p{color:var(--muted);font-size:14px}
+
+  .privacy{display:flex;gap:22px;align-items:flex-start;background:var(--panel);
+    border:1px solid var(--line);border-left:3px solid var(--safe);border-radius:12px;padding:26px}
+  .privacy .glyph{font-family:var(--mono);color:var(--safe);font-size:26px;line-height:1}
+  .privacy h2{margin-top:0}
+  .privacy ul{margin:0;padding-left:18px;color:var(--muted)}
+  .privacy li{margin:6px 0}
+
+  footer{border-top:1px solid var(--line);padding:34px 0 50px;color:var(--faint);font-size:14px}
+  .foot{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center}
+  .foot a{color:var(--muted)}.foot a:hover{color:var(--fg)}
+  .foot .mono{color:var(--faint)}
+
+  @keyframes rise{to{opacity:1;transform:none}}
+  @keyframes strike{to{transform:scaleX(1)}}
+  @keyframes blink{50%{opacity:0}}
+  @media(max-width:860px){
+    .hero{grid-template-columns:1fr;gap:38px;padding-top:52px}
+    .two,.catch,.steps{grid-template-columns:1fr}
+    .catch{grid-template-columns:1fr 1fr}
+  }
+  @media(max-width:520px){.catch{grid-template-columns:1fr}}
+  @media(prefers-reduced-motion:reduce){
+    .row,.block{opacity:1;transform:none;animation:none}
+    h1 .strike::after{transform:scaleX(1);animation:none}
+    .caret{animation:none}
+    html{scroll-behavior:auto}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <a href="/" class="brand"><span class="led"></span>klyvo</a>
+    <nav>
+      <a class="navlink" href="#how">Как работает</a>
+      <a class="navlink" href="#catch">Что ловит</a>
+      <a class="navlink" href="#install">Установка</a>
+      <a class="btn" href="/dashboard/">Дашборд</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="hero" style="border-top:none">
+    <div>
+      <span class="eyebrow">Guard для AI-агентов</span>
+      <h1>Агент не уронит<br>твою <span class="strike">базу</span>.</h1>
+      <p class="lede">Klyvo перехватывает разрушительные команды — DROP, TRUNCATE, DELETE без WHERE, сброс миграций — до того, как их выполнит Claude Code, Cursor или другой AI-агент. Работает даже в авто-режиме.</p>
+      <div class="cta">
+        <a class="btn solid" href="https://github.com/matrixfuck/klyvo/blob/master/INSTALL.md">Установить за 5 минут</a>
+        <a class="btn" href="/dashboard/">Открыть дашборд</a>
+      </div>
+      <p class="hint">Локально. Ничего не отправляет наружу. Открытый код.</p>
+    </div>
+
+    <div class="term" role="img" aria-label="Терминал: безопасная команда проходит, DROP TABLE блокируется Klyvo">
+      <div class="term-top">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span>agent · bash</span>
+        <span class="tag"><span class="led"></span>klyvo активен</span>
+      </div>
+      <div class="term-body">
+        <div class="row ln"><span class="pr">$ </span><span class="cmd">npm run build</span></div>
+        <div class="row ln"><span class="ok">  ✓ проходит</span></div>
+        <div class="row ln"><span class="pr">$ </span><span class="cmd">psql -c "DROP TABLE users;"</span><span class="caret"></span></div>
+        <div class="row">
+          <div class="block">
+            <div class="head">🔴 ЗАБЛОКИРОВАНО Klyvo</div>
+            <div class="why">Удаление таблицы (DROP). Подтвердите вручную или добавьте команду в allowlist.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="kicker">Почему одного отката мало</div>
+    <h2>Откат кода не вернёт удалённые данные</h2>
+    <p class="sub">У Claude Code и Cursor есть свой откат правок. Но у него две дыры, и обе — там, где живёт настоящий риск.</p>
+    <div class="two">
+      <div class="card">
+        <h3>Он не видит bash</h3>
+        <p>Миграции, <span class="mono">psql</span>, CLI баз данных — это почти всегда команды в терминале. Встроенный откат их не отслеживает.</p>
+      </div>
+      <div class="card">
+        <h3>Он не трогает внешнее</h3>
+        <p>Удалённую строку в проде, отправленный API-запрос, уже прошедший деплой откат файлов не вернёт. Klyvo срабатывает до выполнения.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="catch">
+    <div class="kicker">36 правил из коробки</div>
+    <h2>Что Klyvo ловит</h2>
+    <p class="sub">Смотрит текст команды до запуска. Критичное блокирует жёстко, спорное выносит на подтверждение.</p>
+    <div class="catch">
+      <div class="chip"><div class="t">Чистый SQL</div><div class="d"><code>DROP</code> · <code>TRUNCATE</code> · <code>ALTER … DROP COLUMN</code></div></div>
+      <div class="chip"><div class="t">DELETE / UPDATE без WHERE</div><div class="d">включая обманки <code>WHERE 1=1</code></div></div>
+      <div class="chip"><div class="t">Сброс миграций</div><div class="d">Prisma, Rails, Django, Alembic, Knex…</div></div>
+      <div class="chip"><div class="t">Облачные БД</div><div class="d"><code>supabase db reset</code>, D1, Turso</div></div>
+      <div class="chip"><div class="t">NoSQL</div><div class="d"><code>dropDatabase()</code>, <code>deleteMany({})</code>, <code>FLUSHALL</code></div></div>
+      <div class="chip"><div class="t">Инфраструктура</div><div class="d"><code>docker volume rm</code>, <code>terraform destroy</code></div></div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="kicker">Три шага</div>
+    <h2>Поставить на Claude Code</h2>
+    <p class="sub">Работает на macOS и Linux, нужен только Python 3. Форки Claude Code (DeepSeek-Code и др.) — тем же способом.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="no">01</div><h4>Скачать</h4>
+        <pre>git clone \
+ https://github.com/matrixfuck/klyvo.git \
+ ~/klyvo</pre>
+      </div>
+      <div class="step">
+        <div class="no">02</div><h4>Поставить хук</h4>
+        <pre>python3 \
+ ~/klyvo/tools/install_hooks.py</pre>
+        <p>Аккуратно дописывает хук, остальные настройки не трогает.</p>
+      </div>
+      <div class="step">
+        <div class="no">03</div><h4>Перезапустить агента</h4>
+        <p>Хуки читаются при старте. Готово — guard активен.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="privacy">
+      <div class="glyph">▍</div>
+      <div>
+        <div class="kicker">Приватность</div>
+        <h2>Всё остаётся у тебя</h2>
+        <ul>
+          <li>Ни одного сетевого вызова — детекция локальная, без обращений к API.</li>
+          <li>Журнал пишется только на твой диск, в <span class="mono">.klyvo/</span>.</li>
+          <li>Пароли и токены в командах маскируются перед записью в лог.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <span class="mono">klyvo · бета</span>
+    <span>
+      <a href="https://github.com/matrixfuck/klyvo">GitHub</a> &nbsp;·&nbsp;
+      <a href="https://github.com/matrixfuck/klyvo/blob/master/INSTALL.md">Установка</a> &nbsp;·&nbsp;
+      <a href="/dashboard/">Дашборд</a>
+    </span>
+  </div>
+</footer>
+
+</body>
+</html>
