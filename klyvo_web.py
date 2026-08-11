@@ -179,7 +179,9 @@ _CSS = """
 """
 
 LOGIN_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>Вход — Klyvo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d1017"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>Вход — Klyvo</title>
 <style>{css}
 .wrap{{min-height:100vh;display:grid;place-items:center;padding:24px;
  background-image:radial-gradient(50rem 30rem at 70% -10%,rgba(245,181,68,.07),transparent 60%)}}
@@ -213,6 +215,8 @@ a.back:hover{{color:var(--muted)}}
 PAGE = """<!doctype html>
 <html lang="ru"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d1017">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Klyvo — дашборд</title>
 <style>
 :root{color-scheme:dark;--ink:#0d1017;--panel:#141a22;--panel2:#0f151d;--line:#222c38;
@@ -221,6 +225,9 @@ PAGE = """<!doctype html>
  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
 *{box-sizing:border-box}
 body{margin:0;background:var(--ink);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5}
+a:focus-visible,button:focus-visible,input:focus-visible,.sw:focus-within .track{outline:2px solid var(--guard);outline-offset:2px}
+button,a,.sw{touch-action:manipulation}
+.card .n,.cnt .mono,.tab .c,td.t{font-variant-numeric:tabular-nums}
 .wrap{max-width:1040px;margin:0 auto;padding:0 20px 70px}
 .mono{font-family:var(--mono)}
 header{position:sticky;top:0;z-index:10;background:rgba(13,16,23,.82);backdrop-filter:blur(10px);
@@ -235,8 +242,8 @@ header{position:sticky;top:0;z-index:10;background:rgba(13,16,23,.82);backdrop-f
 .hctl{display:flex;align-items:center;gap:14px}
 .sw{display:inline-flex;align-items:center;gap:8px;color:var(--mut);font-size:13px;cursor:pointer;user-select:none}
 .sw input{position:absolute;opacity:0;pointer-events:none}
-.track{width:34px;height:19px;border-radius:20px;background:var(--panel);border:1px solid var(--line);position:relative;transition:.15s}
-.track::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--faint);transition:.15s}
+.track{width:34px;height:19px;border-radius:20px;background:var(--panel);border:1px solid var(--line);position:relative;transition:background .15s,border-color .15s}
+.track::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--faint);transition:transform .15s,background .15s}
 .sw input:checked + .track{background:rgba(87,204,154,.25);border-color:var(--safe)}
 .sw input:checked + .track::after{transform:translateX(15px);background:var(--safe)}
 .lnk{color:var(--mut);font-size:13px;text-decoration:none}.lnk:hover{color:var(--fg)}
@@ -311,15 +318,15 @@ td code{font-family:var(--mono);word-break:break-all;color:var(--fg)}
 <div class="wrap">
   <div class="cards" id="cards"></div>
   <div class="split" id="split"></div>
-  <div class="tabs" id="tabs"></div>
+  <div class="tabs" id="tabs" role="tablist" aria-label="Разделы дашборда"></div>
   <div class="toolbar">
-    <input class="search" id="q" placeholder="Поиск…" autocomplete="off">
+    <input class="search" id="q" placeholder="Поиск…" autocomplete="off" aria-label="Поиск по разделу">
     <div class="chips" id="chips"></div>
   </div>
   <div id="view"></div>
   <div class="foot">
     <span>Данные читаются локально из <code class="mono">.klyvo/</code>. Ничего не отправляется наружу.</span>
-    <span id="upd"></span>
+    <span id="upd" aria-live="polite"></span>
   </div>
 </div>
 

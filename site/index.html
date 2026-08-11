@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Klyvo — страж базы данных для AI-агентов</title>
 <meta name="description" content="Klyvo перехватывает разрушительные команды с базой данных до того, как их выполнит AI-агент. Локально, ничего не отправляет наружу.">
+<meta name="theme-color" content="#0d1017">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root{
     --ink:#0d1017; --panel:#141a22; --panel-2:#0f151d; --line:#222c38;
@@ -15,7 +17,10 @@
     --wrap:1080px;
   }
   *{box-sizing:border-box}
-  html{scroll-behavior:smooth}
+  html{scroll-behavior:smooth;color-scheme:dark}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--guard);outline-offset:2px;border-radius:6px}
+  section[id]{scroll-margin-top:76px}
+  h1,h2{text-wrap:balance}
   body{margin:0;background:var(--ink);color:var(--fg);font-family:var(--sans);
     font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;
     background-image:radial-gradient(60rem 40rem at 78% -10%,rgba(245,181,68,.06),transparent 60%),
@@ -34,7 +39,8 @@
   nav a{color:var(--muted);font-size:14px}
   nav a:hover{color:var(--fg)}
   .btn{font-family:var(--mono);font-size:14px;padding:9px 16px;border-radius:8px;
-    border:1px solid var(--line);color:var(--fg);transition:.15s;white-space:nowrap}
+    border:1px solid var(--line);color:var(--fg);white-space:nowrap;touch-action:manipulation;
+    transition:border-color .15s,color .15s,background .15s}
   .btn:hover{border-color:var(--guard);color:var(--guard)}
   .btn.solid{background:var(--guard);color:#1a1205;border-color:var(--guard);font-weight:600}
   .btn.solid:hover{background:#ffca6a}

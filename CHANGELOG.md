@@ -3,6 +3,17 @@
 Формат — [SemVer](https://semver.org/lang/ru/): `major.minor.patch`.
 Пока версия ниже 1.0.0, ломающие изменения возможны в любом `minor`.
 
+## v0.7.1 — 2026-08-10
+
+Фавикон и доступность.
+
+- Логотип-фавикон `site/favicon.svg` (янтарная плитка с «k») — вкладка больше
+  не пустая; подключён к лендингу, дашборду и странице входа.
+- Аудит по Web Interface Guidelines: `theme-color`, `color-scheme`, видимый
+  `:focus-visible`, `scroll-margin-top` для якорей, `role="tablist"` и `aria-label`
+  на поиске/статусе, `tabular-nums` в числовых колонках, `transition` с явными
+  свойствами вместо `all`.
+
 ## v0.7.0 — 2026-08-10
 
 Дашборд переработан.
