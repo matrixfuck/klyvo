@@ -3,6 +3,23 @@
 Формат — [SemVer](https://semver.org/lang/ru/): `major.minor.patch`.
 Пока версия ниже 1.0.0, ломающие изменения возможны в любом `minor`.
 
+## v0.7.2 — 2026-08-11
+
+Закалка безопасности сайта (аудит по OWASP).
+
+- Заголовки безопасности: HSTS, `X-Content-Type-Options`, `X-Frame-Options: DENY`,
+  `Referrer-Policy`, Content-Security-Policy. Лендинг — строгий CSP (`script-src
+  'none'`), дашборд — `script-src` только по nonce (инлайн-скрипты вне nonce
+  блокируются), `style-src 'unsafe-inline'` для полосок.
+- Сессионная кука ужесточена до `SameSite=Strict`.
+- Скрыты версии сервера (`server_tokens off`, свой `Server: klyvo`).
+- Ограничение частоты попыток входа на nginx (защита от перебора).
+- Усилено XSS-экранирование в дашборде (кавычки + атрибут `title`).
+
+Аудит показал: инъекций (SQL/команд), path traversal, SSRF, open redirect и
+небезопасной загрузки файлов нет; авторизация — scrypt + HMAC-подпись сессии с
+constant-time сравнением. Правки закрывают hardening-пробелы.
+
 ## v0.7.1 — 2026-08-10
 
 Фавикон и доступность.

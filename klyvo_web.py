@@ -182,7 +182,7 @@ LOGIN_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0d1017"><link rel="icon" href="/favicon.ico?v=3" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3"><link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3">
 <title>Вход — Klyvo</title>
-<style>{css}
+<style nonce="__NONCE__">{css}
 .wrap{{min-height:100vh;display:grid;place-items:center;padding:24px;
  background-image:radial-gradient(50rem 30rem at 70% -10%,rgba(245,181,68,.07),transparent 60%)}}
 .box{{width:100%;max-width:340px;background:var(--panel);border:1px solid var(--line);
@@ -218,7 +218,7 @@ PAGE = """<!doctype html>
 <meta name="theme-color" content="#0d1017">
 <link rel="icon" href="/favicon.ico?v=3" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3"><link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3">
 <title>Klyvo — дашборд</title>
-<style>
+<style nonce="__NONCE__">
 :root{color-scheme:dark;--ink:#0d1017;--panel:#141a22;--panel2:#0f151d;--line:#222c38;
  --fg:#e9edf3;--mut:#8b95a6;--faint:#5c6675;--guard:#f5b544;--danger:#ff5b52;--safe:#57cc9a;
  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
@@ -330,8 +330,8 @@ td code{font-family:var(--mono);word-break:break-all;color:var(--fg)}
   </div>
 </div>
 
-<script>
-const esc = s => (s??'').toString().replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+<script nonce="__NONCE__">
+const esc = s => (s??'').toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = {data:null, tab:'blocks', q:'', flt:'all', auto:false, at:0};
 let timer=null;
 
@@ -389,7 +389,7 @@ function render(){
       .filter(b=>!q||(b.command||'').toLowerCase().includes(q)||(b.rules_matched||[]).join(' ').toLowerCase().includes(q));
     html = rows.length
      ? `<table><thead><tr><th>Время</th><th>Решение</th><th>Команда</th><th>Правила</th></tr></thead><tbody>`+
-       rows.map(b=>`<tr><td class="t" title="${full(b.ts)}">${rel(b.ts)}</td>
+       rows.map(b=>`<tr><td class="t" title="${esc(full(b.ts))}">${rel(b.ts)}</td>
         <td><span class="badge ${b.decision==='deny'?'deny':'ask'}">${esc(b.decision)}</span></td>
         <td><code>${esc(b.command)}</code></td>
         <td class="rules">${esc((b.rules_matched||[]).join(', '))}</td></tr>`).join('')+`</tbody></table>`
@@ -408,7 +408,7 @@ function render(){
     let rows=d.session.filter(e=>!q||(e.detail||'').toLowerCase().includes(q)||(e.kind||e.tool||'').toLowerCase().includes(q));
     html = rows.length
      ? `<table><thead><tr><th>Время</th><th>Тип</th><th>Детали</th></tr></thead><tbody>`+
-       rows.map(e=>`<tr><td class="t" title="${full(e.ts)}">${rel(e.ts)}</td>
+       rows.map(e=>`<tr><td class="t" title="${esc(full(e.ts))}">${rel(e.ts)}</td>
         <td class="kind">${esc(e.kind||e.tool)}</td><td><code>${esc(e.detail)}</code></td></tr>`).join('')+`</tbody></table>`
      : `<div class="empty">${d.session.length?'Ничего не найдено.':'Журнал сессии пуст.'}</div>`;
   }
@@ -434,6 +434,14 @@ class Handler(BaseHTTPRequestHandler):
     project_root = "."
     auth = None          # dict или None (None → без входа)
     base = ""            # публичный префикс за прокси, напр. "/dashboard"
+    server_version = "klyvo"   # не раскрывать версию BaseHTTP/Python в Server-заголовке
+    sys_version = ""
+
+    SEC_HEADERS = [
+        ("X-Content-Type-Options", "nosniff"),
+        ("X-Frame-Options", "DENY"),
+        ("Referrer-Policy", "strict-origin-when-cross-origin"),
+    ]
 
     # -- helpers --
     def _send(self, body, ctype, status=200, extra_headers=None):
@@ -441,11 +449,27 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        for k, v in self.SEC_HEADERS:
+            self.send_header(k, v)
         for k, v in (extra_headers or []):
             self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
+
+    def _send_html(self, template, status=200):
+        """Отдать HTML с CSP на nonce (инлайновые script/style разрешены только по nonce)."""
+        nonce = secrets.token_urlsafe(16)
+        html = template.replace("__NONCE__", nonce)
+        # script — строго по nonce (главная защита от XSS); style — 'unsafe-inline',
+        # т.к. дашборд использует инлайновые style-атрибуты для полосок (CSS-инъекция
+        # некритична, выполнение скриптов при этом остаётся заблокированным).
+        csp = ("default-src 'self'; "
+               f"script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; "
+               "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+               "base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+        self._send(html, "text/html; charset=utf-8", status,
+                   extra_headers=[("Content-Security-Policy", csp)])
 
     def _redirect(self, location, cookie=None):
         self.send_response(303)
@@ -458,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
     def _cookie(self, token, max_age):
         return "; ".join([
             f"{SESSION_COOKIE}={token}", f"Path={self.base or '/'}",
-            f"Max-Age={max_age}", "HttpOnly", "SameSite=Lax", "Secure",
+            f"Max-Age={max_age}", "HttpOnly", "SameSite=Strict", "Secure",
         ])
 
     def _session_token(self):
@@ -481,7 +505,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.auth is not None:
             if path == "/login":
-                self._send(LOGIN_PAGE.format(css=_CSS, error=""), "text/html; charset=utf-8")
+                self._send_html(LOGIN_PAGE.format(css=_CSS, error=""))
                 return
             if path == "/logout":
                 self._redirect((self.base or "") + "/login", cookie=self._cookie("", 0))
@@ -494,7 +518,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps(collect(self.project_root), ensure_ascii=False),
                        "application/json; charset=utf-8")
         elif path == "/" or path.startswith("/index"):
-            self._send(PAGE, "text/html; charset=utf-8")
+            self._send_html(PAGE)
         else:
             self._send("404", "text/plain; charset=utf-8", status=404)
 
@@ -509,8 +533,7 @@ class Handler(BaseHTTPRequestHandler):
                                cookie=self._cookie(make_session(self.auth), SESSION_TTL))
             else:
                 time.sleep(0.6)  # притормозить перебор
-                self._send(LOGIN_PAGE.format(css=_CSS, error="Неверный пароль"),
-                           "text/html; charset=utf-8", status=401)
+                self._send_html(LOGIN_PAGE.format(css=_CSS, error="Неверный пароль"), status=401)
             return
         self._send("404", "text/plain; charset=utf-8", status=404)
 
