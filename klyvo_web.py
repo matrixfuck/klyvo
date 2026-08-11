@@ -180,7 +180,7 @@ _CSS = """
 
 LOGIN_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0d1017"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0d1017"><link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">
 <title>Вход — Klyvo</title>
 <style>{css}
 .wrap{{min-height:100vh;display:grid;place-items:center;padding:24px;
@@ -216,7 +216,7 @@ PAGE = """<!doctype html>
 <html lang="ru"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0d1017">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">
 <title>Klyvo — дашборд</title>
 <style>
 :root{color-scheme:dark;--ink:#0d1017;--panel:#141a22;--panel2:#0f151d;--line:#222c38;
