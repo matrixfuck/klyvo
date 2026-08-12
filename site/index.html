@@ -159,6 +159,17 @@
     border-right:1px solid var(--line)}
   .sheet .v{padding:16px 20px;color:var(--dim);font-size:13.5px;line-height:1.7}
   .sheet .v code{color:var(--block)}
+  .sheet.agents .k{display:flex;flex-direction:column;gap:3px}
+  .sheet.agents .k2{color:var(--faint);font-size:11.5px;font-weight:400}
+  .sheet.agents .v code{color:var(--amber)}
+  .stat::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;
+    margin-right:8px;vertical-align:1px}
+  .stat.ok{color:var(--pass)}
+  .stat.ok::before{background:var(--pass);box-shadow:0 0 7px var(--pass)}
+  .stat.soon{color:var(--dim)}
+  .stat.soon::before{background:var(--amber)}
+  .stat.no{color:var(--faint)}
+  .stat.no::before{background:var(--faint)}
 
   /* install — real numbered sequence */
   .steps{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line-2)}
@@ -224,6 +235,7 @@
     <nav>
       <a class="navlink" href="#why">защита</a>
       <a class="navlink" href="#catch">правила</a>
+      <a class="navlink" href="#agents">агенты</a>
       <a class="navlink" href="#install">установка</a>
       <a class="btn" href="/dashboard/">Дашборд&nbsp;▸</a>
     </nav>
@@ -319,11 +331,29 @@
     </div>
   </section>
 
+  <section id="agents">
+    <div class="wrap pad">
+      <span class="eye">поддержка агентов · 6 инструментов</span>
+      <h2>Какие агенты защищены</h2>
+      <p class="sub">Ядро детекции и журнал общие для всех — под каждый инструмент только тонкий адаптер под его формат хуков. Живая проверка блокировки подтверждена на Claude Code; у остальных адаптеры собраны по официальной спеке и покрыты юнит-тестами, живой тест на реальном агенте — впереди. Это бета: возможны баги, особенно на свежих адаптерах — нашли один, откройте issue на GitHub.</p>
+      <div class="sheet agents">
+        <div class="hd"><span>агент</span><span>статус</span></div>
+        <div class="r"><div class="k">Claude Code</div><div class="v"><span class="stat ok">подтверждено вживую</span></div></div>
+        <div class="r"><div class="k">DeepSeek-Code и форки<span class="k2">Langcli, Crush, Oh My Pi</span></div><div class="v"><span class="stat soon">тот же контракт хуков, что у Claude Code — живой тест впереди</span></div></div>
+        <div class="r"><div class="k">Cursor</div><div class="v"><span class="stat soon">по спеке <code>beforeShellExecution</code> — живой тест впереди</span></div></div>
+        <div class="r"><div class="k">Codex CLI</div><div class="v"><span class="stat soon">свой адаптер под формат Codex — живой тест впереди</span></div></div>
+        <div class="r"><div class="k">Kimi Code CLI</div><div class="v"><span class="stat soon">по официальной спеке хуков — живой тест впереди</span></div></div>
+        <div class="r"><div class="k">opencode</div><div class="v"><span class="stat soon">экспериментальный JS-плагин — живой тест впереди</span></div></div>
+        <div class="r"><div class="k">DeepSeek-TUI, Reasonix<span class="k2">Codex-архитектура</span></div><div class="v"><span class="stat no">пока не поддержаны — другой формат хуков</span></div></div>
+      </div>
+    </div>
+  </section>
+
   <section id="install">
     <div class="wrap pad">
       <span class="eye">установка · три шага</span>
       <h2>Поставить на Claude Code</h2>
-      <p class="sub">Нужен только Python 3. Форки Claude Code (DeepSeek-Code и др.) — тем же способом.</p>
+      <p class="sub">Нужен только Python 3. Шаги ниже — под Claude Code; для остальных агентов из <a href="#agents" class="mono" style="color:var(--amber)">списка выше</a> команда установки отличается на один флаг, все — в INSTALL.md.</p>
       <div class="steps">
         <div class="step">
           <div class="no">01 — СКАЧАТЬ</div>

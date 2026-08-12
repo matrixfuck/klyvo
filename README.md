@@ -165,15 +165,21 @@ Klyvo в бете, v0.7.2. Основное уже работает: перех�
 (или любая другая модель) работает *внутри* Claude Code, Cursor или их форка —
 он уже под защитой, отдельная поддержка не нужна.
 
+Живая проверка блокировки подтверждена на Claude Code. У остальных адаптеры
+собраны по официальной спеке хуков конкретного инструмента и покрыты юнит-тестами
+(`tests/test_agents.py`, `tests/test_cursor.py`) — но живой тест на реальном
+агенте ещё впереди. Это бета: возможны баги, особенно на свежих адаптерах.
+Нашли один — заведите issue, это ускоряет переход адаптера в проверенный статус.
+
 | Агент | Как | Статус |
 |---|---|---|
-| Claude Code | `PreToolUse`/`PostToolUse`, `install_hooks.py` | ✅ проверено вживую |
-| DeepSeek-Code и форки Claude Code (Langcli, Crush, Oh My Pi) | тот же контракт хуков, `--tool deepseek-code` или `--tool claude-compatible --path <settings.json>` | 🟡 формат совпадает с Claude Code, живьём не проверен |
-| Kimi Code CLI | `[[hooks]]` в `config.toml`, тот же `guard.py` (формат хуков как у Claude Code), `--tool kimi` | 🟡 по офиц. спеке, живьём не проверен |
-| Codex CLI | свой адаптер (плоский `deny`), `hooks.json` + флаг `codex_hooks`, `--tool codex` | 🟡 по офиц. спеке, живьём не проверен |
-| Cursor | `beforeShellExecution`, `--tool cursor` | 🟡 по офиц. спеке, живьём не проверен |
-| opencode | плагин на JS (`tool.execute.before`), зовёт ядро правил, `--tool opencode` | 🟡 экспериментально, живьём не проверен |
-| Агенты на Codex-архитектуре (DeepSeek-TUI, Reasonix) | свой формат хуков | ⛔ пока не поддержаны |
+| Claude Code | `PreToolUse`/`PostToolUse`, `install_hooks.py` | ✅ подтверждено вживую |
+| DeepSeek-Code и форки Claude Code (Langcli, Crush, Oh My Pi) | тот же контракт хуков, `--tool deepseek-code` или `--tool claude-compatible --path <settings.json>` | 🟡 тот же контракт хуков, что у Claude Code — живой тест впереди |
+| Kimi Code CLI | `[[hooks]]` в `config.toml`, тот же `guard.py` (формат хуков как у Claude Code), `--tool kimi` | 🟡 по официальной спеке хуков — живой тест впереди |
+| Codex CLI | свой адаптер (плоский `deny`), `hooks.json` + флаг `codex_hooks`, `--tool codex` | 🟡 свой адаптер под формат Codex — живой тест впереди |
+| Cursor | `beforeShellExecution`, `--tool cursor` | 🟡 по спеке `beforeShellExecution` — живой тест впереди |
+| opencode | плагин на JS (`tool.execute.before`), зовёт ядро правил, `--tool opencode` | 🟡 экспериментальный JS-плагин — живой тест впереди |
+| Агенты на Codex-архитектуре (DeepSeek-TUI, Reasonix) | свой формат хуков | ⛔ пока не поддержаны — другой формат хуков |
 
 Установщик вычисляет пути от расположения репозитория, поэтому работает из любой
 копии — локальной или синхронизированной между машинами:
