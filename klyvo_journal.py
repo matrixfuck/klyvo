@@ -9,12 +9,23 @@
   python3 klyvo_journal.py            # последняя сессия
   python3 klyvo_journal.py --all      # все сессии
   python3 klyvo_journal.py --session <id>
+  python3 klyvo_journal.py --export   # обезличенный JSON для ручной отправки
+                                       # (все сессии, если не сузить --session)
 """
 import argparse
+import datetime
+import hashlib
 import json
 import os
 import sys
 from collections import Counter, OrderedDict
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from klyvo.redact import redact
+except Exception:  # экспорт не должен падать целиком из-за отсутствия klyvo/
+    def redact(text):
+        return text
 
 
 def klyvo_dir():
@@ -102,11 +113,61 @@ def render(actions, blocked, session_label):
     return "\n".join(lines).rstrip() + "\n"
 
 
+def project_id(base):
+    """Стабильный псевдонимный ID проекта — необратимый хэш пути, не сам путь."""
+    return hashlib.sha256(os.path.abspath(base).encode("utf-8")).hexdigest()[:12]
+
+
+def sanitize_action(a):
+    """Событие сессии для экспорта: путь файла — только имя, без каталогов."""
+    kind = a.get("kind", "")
+    detail = a.get("detail") or ""
+    if kind == "command":
+        detail = redact(detail)  # уже маскировалось при записи; второй проход — на случай старых логов
+    elif detail:
+        detail = redact(os.path.basename(detail))
+    return {"ts": a.get("ts"), "kind": kind, "detail": detail, "success": a.get("success")}
+
+
+def sanitize_block(b):
+    """Перехваченная опасная команда для экспорта: без cwd, команда — под повторный redact()."""
+    return {
+        "ts": b.get("ts"),
+        "tool": b.get("tool"),
+        "command": redact(b.get("command", "")),
+        "rules_matched": b.get("rules_matched", []),
+        "severities": b.get("severities", []),
+        "reasons": b.get("reasons", []),
+        "decision": b.get("decision"),
+    }
+
+
+def export_bundle(actions, blocked, base):
+    """Обезличенный снимок для ручной отправки: без cwd/абсолютных путей/секретов."""
+    return {
+        "klyvo_export_version": 1,
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "project_id": project_id(base),
+        "note": (
+            "Локальный экспорт Klyvo, отправляется только вручную. Секреты и "
+            "абсолютные пути замаскированы автоматически (best-effort, не "
+            "100%-я гарантия) — просмотри файл перед отправкой."
+        ),
+        "actions": [sanitize_action(a) for a in actions],
+        "blocked": [sanitize_block(b) for b in blocked],
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Человекочитаемая сводка сессии Klyvo")
     parser.add_argument("--all", action="store_true", help="показать все сессии")
     parser.add_argument("--session", help="показать конкретную сессию по id")
     parser.add_argument("--dir", help="путь к .klyvo (по умолчанию из CLAUDE_PROJECT_DIR/cwd)")
+    parser.add_argument(
+        "--export", nargs="?", const="__default__", metavar="PATH",
+        help="сохранить обезличенный JSON для ручной отправки (по умолчанию "
+             "рядом с .klyvo; без --session выгружает все сессии сразу)",
+    )
     args = parser.parse_args(argv)
 
     base = args.dir or klyvo_dir()
@@ -117,15 +178,34 @@ def main(argv=None):
         print("Журнал пуст — в этом проекте ещё не было действий агента с активным Klyvo.")
         return 0
 
-    if args.all:
+    if args.session:
+        target = args.session
+        label = target
+        actions = [a for a in actions if a.get("session_id") == target]
+        blocked = [b for b in blocked if b.get("session_id") == target]
+    elif args.all or args.export is not None:
         label = "все сессии"
     else:
-        target = args.session or latest_session(actions) or latest_session(blocked)
+        target = latest_session(actions) or latest_session(blocked)
         label = target
         actions = [a for a in actions if a.get("session_id") == target]
         blocked = [b for b in blocked if b.get("session_id") == target]
 
     sys.stdout.write(render(actions, blocked, label))
+
+    if args.export is not None:
+        bundle = export_bundle(actions, blocked, base)
+        if args.export == "__default__":
+            stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            out_path = os.path.join(os.path.dirname(base) or ".", f"klyvo-export-{stamp}.json")
+        else:
+            out_path = args.export
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(bundle, f, ensure_ascii=False, indent=2)
+        print(f"\nЭкспорт сохранён: {out_path}")
+        print(f"({len(bundle['actions'])} действий, {len(bundle['blocked'])} перехватов — "
+              "секреты и пути замаскированы. Просмотри файл, прежде чем отправлять.)")
+
     return 0
 
 

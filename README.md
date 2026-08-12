@@ -102,6 +102,21 @@ python3 klyvo_journal.py --session <id>
     └ Удаление таблицы/базы/схемы (DROP) — потребовано подтверждение
 ```
 
+### Экспорт для отправки (например, тестировщиком)
+
+```
+python3 klyvo_journal.py --export              # klyvo-export-<время>.json рядом с .klyvo
+python3 klyvo_journal.py --export path/out.json
+```
+
+Отправка — только вручную, ты сам решаешь, кому и когда. Файл собирается локально:
+`cwd` и абсолютные пути (правки/чтения файлов) не попадают в него вовсе, остаётся
+только имя файла; пароли/токены/ключи маскируются `klyvo/redact.py` повторно (на
+случай, если что-то не замаскировалось при первой записи). Это блок-лист по
+известным форматам, а не гарантия на 100% — текст самой команды (например,
+доменное имя БД в connection-string) остаётся видимым для контекста. **Открой
+файл и просмотри его глазами, прежде чем отправлять.**
+
 ## Веб-дашборд
 
 Локальный дашборд показывает перехваченные команды и активность сессии в браузере:
@@ -119,8 +134,13 @@ python3 klyvo_web.py --project ~/app --port 9000
 
 ```
 python3 tests/run_tests.py     # guard: 25 опасных + 14 безопасных команд
-python3 tests/test_journal.py  # журнал: запись событий + рендер сводки
+python3 tests/test_journal.py  # журнал: запись событий, рендер сводки, --export
 python3 tests/test_config.py   # правила: config (disable/allowlist/custom) + многострочный WHERE
+python3 tests/test_redact.py   # маскировка секретов (URL/KEY=/флаги/JSON/форматы ключей)
+python3 tests/test_cursor.py   # адаптер Cursor
+python3 tests/test_install.py  # установщик хуков: запись, идемпотентность, --uninstall
+python3 tests/test_web.py      # сбор данных дашборда + авторизация
+python3 tests/test_agents.py   # адаптеры Codex/Kimi/opencode
 ```
 
 Тесты симулируют формат `PreToolUse`/`PostToolUse`-событий из

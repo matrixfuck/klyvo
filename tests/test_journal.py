@@ -89,6 +89,58 @@ def main():
         else:
             print("[OK] Read не засчитан как изменение файла")
 
+        # ── --export: секреты/cwd/абсолютные пути не должны попасть в файл ──
+        with open(os.path.join(klyvo, "session_log.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "ts": "2026-08-07T12:05:00Z", "session_id": "sess-1",
+                "kind": "command", "tool": "Bash",
+                "detail": "curl -u admin:hunter2Secret https://api.example.com",
+                "success": True,
+            }, ensure_ascii=False) + "\n")
+            f.write(json.dumps({
+                "ts": "2026-08-07T12:06:00Z", "session_id": "sess-1",
+                "kind": "edit", "tool": "Edit",
+                "detail": "/home/ivan-petrov/work/acme-corp-private/src/db.py",
+                "success": True,
+            }, ensure_ascii=False) + "\n")
+        with open(os.path.join(klyvo, "journal.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "ts": "2026-08-07T12:07:00Z", "session_id": "sess-1",
+                "cwd": "/home/ivan-petrov/work/acme-corp-private",
+                "command": 'psql "postgresql://admin:TOPSECRET@db.host/prod" -c "TRUNCATE orders;"',
+                "rules_matched": ["sql_truncate"], "severities": ["critical"],
+                "reasons": ["Опустошение таблицы (TRUNCATE)"], "decision": "deny",
+            }, ensure_ascii=False) + "\n")
+
+        export_path = os.path.join(tmp, "out.json")
+        result = subprocess.run(
+            ["python3", RENDER, "--export", export_path, "--dir", klyvo],
+            capture_output=True, text=True, env=env,
+        )
+        exported = json.loads(open(export_path, encoding="utf-8").read())
+        blob = json.dumps(exported, ensure_ascii=False)
+
+        export_checks = [
+            ("cwd" not in blob, "cwd отсутствует в экспорте целиком"),
+            ("ivan-petrov" not in blob, "имя пользователя ОС из пути не попало в экспорт"),
+            ("acme-corp-private" not in blob, "имя проекта/клиента из пути не попало в экспорт"),
+            ("hunter2Secret" not in blob, "пароль из curl -u не попал в экспорт"),
+            ("TOPSECRET" not in blob, "пароль из connection-string не попал в экспорт"),
+            ("db.py" in blob, "имя файла (без каталогов) сохранено для контекста"),
+            (exported.get("project_id") and len(exported["project_id"]) == 12, "есть псевдонимный project_id"),
+            (os.path.abspath(klyvo) not in blob, "абсолютный путь проекта не попал в экспорт"),
+        ]
+        for cond, desc in export_checks:
+            if cond:
+                print(f"[OK] {desc}")
+            else:
+                print(f"[FAIL] {desc}")
+                failures += 1
+
+        if result.returncode != 0:
+            print(f"[FAIL] --export завершился с кодом {result.returncode}: {result.stderr}")
+            failures += 1
+
     print(f"\n{'ВСЕ ТЕСТЫ ПРОШЛИ' if failures == 0 else f'{failures} ПРОВАЛЕННЫХ ТЕСТОВ'}")
     sys.exit(1 if failures else 0)
 
