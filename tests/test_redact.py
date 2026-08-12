@@ -39,6 +39,40 @@ check("Authorization Bearer замаскирован",
 # ── известные форматы ключей ──
 check("GitHub PAT замаскирован", MASK in redact("git remote set-url o https://ghp_ABCDEFGHIJKLMNOPQRSTUVWX@x"))
 check("AWS access key замаскирован", MASK in redact("AKIAIOSFODNN7EXAMPLE"))
+# Значения ниже собраны конкатенацией — фрагмент по формату похож на настоящий
+# ключ (нужно для проверки regex), а секрет-сканеры GitHub/GitLab ищут точное
+# совпадение подряд идущей строки, так что склейка не мешает тесту, но не триггерит их.
+_fake_anthropic = "sk-ant-api03-" + "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890"
+_fake_stripe_secret = "sk_live_" + "51AbCdEfGhIjKlMnOpQrStUvWxYz00112233"
+_fake_stripe_pub = "pk_live_" + "51AbCdEfGhIjKlMnOpQrStUvWxYz00112233"
+_fake_gitlab_pat = "glpat-" + "AbCdEfGhIjKlMnOpQrSt"
+_fake_jwt = "eyJhbGciOiJIUzI1NiJ9" + "." + "eyJzdWIiOiIxIn0" + "." + "dQw4w9WgXcQ_signature123"
+
+check("Anthropic-ключ (с дефисами внутри) замаскирован",
+      "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890" not in redact("echo " + _fake_anthropic))
+check("Stripe secret key замаскирован",
+      MASK in redact("echo " + _fake_stripe_secret))
+check("Stripe publishable key НЕ маскируется (не секрет)",
+      _fake_stripe_pub in redact("echo " + _fake_stripe_pub))
+check("GitLab PAT замаскирован",
+      MASK in redact("git clone https://oauth2:" + _fake_gitlab_pat + "@gitlab.com/x/y.git"))
+check("JWT замаскирован целиком",
+      "dQw4w9WgXcQ_signature123" not in redact("echo " + _fake_jwt))
+
+# ── флаговый синтаксис (без = и без :) ──
+check("curl -u user:pass замаскирован",
+      "hunter2SuperSecret" not in redact("curl -u admin:hunter2SuperSecret https://api.example.com"))
+check("--with-token X замаскирован",
+      "abcDEF123TOKENVALUE" not in redact("gh auth login --with-token abcDEF123TOKENVALUE"))
+
+# ── JSON-тело (ключ в кавычках перед :) ──
+check("password в JSON-теле замаскирован",
+      "hunter2Secret" not in redact('curl -d \'{"password":"hunter2Secret","token":"x"}\''))
+
+# ── обычные флаги без секрета не должны портиться ──
+check("--host/--port не трогаются",
+      redact("mysqldump --host db --port 5432 mydb > out.sql")
+      == "mysqldump --host db --port 5432 mydb > out.sql")
 
 # ── обычные команды не трогаем (в т.ч. опасные — это не секреты) ──
 check("обычная команда без изменений", redact("npm run build") == "npm run build")
