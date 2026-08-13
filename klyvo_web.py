@@ -15,14 +15,19 @@
   KLYVO_WEB_AUTH=~/.klyvo-web/auth.json KLYVO_WEB_BASE=/dashboard python3 klyvo_web.py
 """
 import argparse
+import datetime
 import getpass
 import hashlib
 import hmac
+import html
 import json
 import os
+import re
 import secrets
 import sys
 import time
+import urllib.error
+import urllib.request
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from http.cookies import SimpleCookie
@@ -169,6 +174,189 @@ def valid_session(auth, token):
         return False
 
 
+# ── Rate-limit (в памяти процесса — для беты этого достаточно) ───────────────
+_RATE_WINDOW = 300  # 5 минут
+_RATE_MAX = {"login": 8, "register": 5, "verify": 10}
+_rate_hits = {}
+
+
+def rate_limited(kind, key):
+    now = time.time()
+    bucket = _rate_hits.setdefault((kind, key), [])
+    bucket[:] = [t for t in bucket if now - t < _RATE_WINDOW]
+    if len(bucket) >= _RATE_MAX.get(kind, 5):
+        return True
+    bucket.append(now)
+    return False
+
+
+# ── Мультипользовательский режим (онлайн-хостинг для тестеров) ───────────────
+# Отдельная модель от однопользовательского auth.json выше — не пересекается с
+# локальным self-hosted режимом ни файлами, ни поведением.
+USERNAME_RE = re.compile(r"^[a-zA-Z0-9_-]{3,32}$")
+MIN_PASSWORD_LEN = 10
+
+
+def _users_path():
+    return os.environ.get("KLYVO_USERS_PATH") or os.path.expanduser("~/.klyvo-web/users.json")
+
+
+def load_users():
+    path = _users_path()
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _save_users(data):
+    path = _users_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)  # атомарно — не оставить users.json битым при параллельном запросе
+
+
+def init_users():
+    data = load_users()
+    if data is None:
+        data = {"secret": secrets.token_hex(32), "users": {}}
+        _save_users(data)
+    return data
+
+
+def register_user(username, password):
+    """None при успехе, иначе текст ошибки для показа пользователю."""
+    if not USERNAME_RE.match(username or ""):
+        return "Логин: 3-32 символа, латиница/цифры/_/-."
+    if not password or len(password) < MIN_PASSWORD_LEN:
+        return f"Пароль — минимум {MIN_PASSWORD_LEN} символов (почты нет, это единственная защита аккаунта)."
+    data = init_users()
+    if username in data["users"]:
+        return "Такой логин уже занят."
+    salt = secrets.token_bytes(16)
+    dk = hashlib.scrypt(password.encode(), salt=salt, **_SCRYPT)
+    data["users"][username] = {
+        "salt": salt.hex(), "hash": dk.hex(),
+        "created": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    _save_users(data)
+    return None
+
+
+def verify_user(username, password):
+    data = load_users()
+    users = (data or {}).get("users") or {}
+    if username not in users:
+        hashlib.scrypt(b"dummy-constant-time", salt=b"0" * 16, **_SCRYPT)  # не выдавать таймингом наличие логина
+        return False
+    u = users[username]
+    dk = hashlib.scrypt(password.encode(), salt=bytes.fromhex(u["salt"]), **_SCRYPT)
+    return hmac.compare_digest(dk.hex(), u["hash"])
+
+
+def make_user_session(secret_hex, username):
+    exp = str(int(time.time()) + SESSION_TTL)
+    payload = f"{username}.{exp}"
+    sig = hmac.new(bytes.fromhex(secret_hex), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{username}.{exp}.{sig}"
+
+
+def valid_user_session(secret_hex, token):
+    """Вернуть username при валидной сессии, иначе None."""
+    if not token or token.count(".") != 2:
+        return None
+    username, exp, sig = token.split(".")
+    good = hmac.new(bytes.fromhex(secret_hex), f"{username}.{exp}".encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, good):
+        return None
+    try:
+        if int(exp) <= time.time():
+            return None
+    except ValueError:
+        return None
+    return username
+
+
+def _user_root(username):
+    """Корень данных пользователя на сервере — та же .klyvo/-структура, что и локально."""
+    base = os.environ.get("KLYVO_USER_DATA_DIR") or os.path.expanduser("~/.klyvo-web/data")
+    root = os.path.join(base, username)
+    os.makedirs(os.path.join(root, ".klyvo"), exist_ok=True)
+    return root
+
+
+def _append_unique(path, rows):
+    """Дописать в path только строки, которых там ещё нет (защита от дублей при повторной загрузке)."""
+    existing = set()
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            existing = {line.strip() for line in f if line.strip()}
+    added = 0
+    with open(path, "a", encoding="utf-8") as f:
+        for r in rows:
+            line = json.dumps(r, ensure_ascii=False, sort_keys=True)
+            if line in existing:
+                continue
+            f.write(line + "\n")
+            existing.add(line)
+            added += 1
+    return added
+
+
+def merge_export(username, bundle):
+    """Дописать записи из --export бандла в серверные логи пользователя.
+    Вернуть (добавлено_перехватов, добавлено_действий). ValueError на неправильный формат."""
+    if not isinstance(bundle, dict) or "blocked" not in bundle or "actions" not in bundle:
+        raise ValueError("Это не похоже на файл klyvo_journal.py --export.")
+    root = _user_root(username)
+    added_b = _append_unique(os.path.join(root, ".klyvo", "journal.jsonl"), bundle.get("blocked") or [])
+    added_a = _append_unique(os.path.join(root, ".klyvo", "session_log.jsonl"), bundle.get("actions") or [])
+    return added_b, added_a
+
+
+# ── Central-auth (локальный дашборд сверяет пароль на центральном сервере) ───
+def _local_secret_path():
+    return os.environ.get("KLYVO_LOCAL_SECRET") or os.path.expanduser("~/.klyvo-web/local-secret.json")
+
+
+def load_or_create_local_secret():
+    """Секрет только для подписи ЛОКАЛЬНОЙ сессионной куки. Пароль нигде локально не хранится."""
+    path = _local_secret_path()
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)["secret"]
+        except Exception:
+            pass
+    secret = secrets.token_hex(32)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"secret": secret}, f)
+    os.chmod(path, 0o600)
+    return secret
+
+
+def remote_verify(base_url, username, password):
+    """Проверить логин/пароль на центральном сервере. True/False/None (None = сервер недоступен)."""
+    payload = json.dumps({"username": username, "password": password}).encode("utf-8")
+    req = urllib.request.Request(
+        base_url.rstrip("/") + "/api/auth/verify", data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return bool(data.get("ok"))
+    except Exception:
+        return None
+
+
 # ── Страницы ─────────────────────────────────────────────────────────────────
 _CSS = """
 :root{color-scheme:dark;--void:#0a0a0b;--void-2:#100f10;--cell:#141312;
@@ -205,15 +393,125 @@ button:hover{{background:var(--bone);border-color:var(--bone)}}
 a.back{{display:block;text-align:center;color:var(--faint);font-size:12px;
  letter-spacing:.06em;margin-top:18px;text-decoration:none}}
 a.back:hover{{color:var(--amber)}}
+.sub{{display:block;text-align:center;color:var(--faint);font-size:12px;letter-spacing:.06em;
+ margin-top:14px;text-decoration:none}}
+.sub a{{color:var(--amber);text-decoration:none}}
+.sub a:hover{{color:var(--bone)}}
 </style></head><body><div class="wrap"><form class="box" method="post">
 <div class="brand"><span class="led"></span>klyvo</div>
 <p class="hint">вход в дашборд</p>
 <div class="err">{error}</div>
-<label for="p">Пароль</label>
-<input id="p" type="password" name="password" autofocus autocomplete="current-password">
+{ufield}<label for="p">Пароль</label>
+<input id="p" type="password" name="password" autocomplete="current-password">
 <button type="submit">Войти</button>
 <a class="back" href="/">← на главную</a>
+{below}</form></div></body></html>"""
+
+REGISTER_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d1017"><link rel="icon" href="/favicon.ico?v=3" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3"><link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3">
+<title>Регистрация — Klyvo</title>
+<style nonce="__NONCE__">{css}
+body{{font-size:15px}}
+.wrap{{min-height:100vh;display:grid;place-items:center;padding:24px;
+ background-image:repeating-linear-gradient(0deg,rgba(255,255,255,.014) 0 1px,transparent 1px 3px)}}
+.box{{width:100%;max-width:360px;background:var(--void-2);border:1px solid var(--line-2);padding:30px 28px}}
+.brand{{font-weight:700;font-size:18px;letter-spacing:.06em;text-transform:uppercase;
+ display:flex;align-items:center;gap:10px;margin-bottom:4px}}
+.led{{width:8px;height:8px;background:var(--pass);box-shadow:0 0 9px var(--pass)}}
+.hint{{color:var(--faint);font-size:12px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 8px}}
+.note{{color:var(--dim);font-size:12.5px;line-height:1.6;margin:0 0 20px}}
+label{{font-size:12px;letter-spacing:.06em;color:var(--dim);display:block;margin-bottom:8px}}
+input{{width:100%;background:var(--void);border:1px solid var(--line-2);
+ color:var(--bone);font-family:var(--mono);font-size:15px;padding:11px 13px;margin-bottom:18px}}
+input:focus{{outline:none;border-color:var(--amber)}}
+button{{width:100%;background:var(--amber);color:var(--void);border:1px solid var(--amber);
+ font-family:var(--mono);font-weight:700;font-size:14px;letter-spacing:.06em;text-transform:uppercase;padding:12px;cursor:pointer}}
+button:hover{{background:var(--bone);border-color:var(--bone)}}
+.err{{color:var(--block);font-size:13px;margin:0 0 16px;min-height:1em}}
+a.back{{display:block;text-align:center;color:var(--faint);font-size:12px;
+ letter-spacing:.06em;margin-top:18px;text-decoration:none}}
+a.back:hover{{color:var(--amber)}}
+.sub{{display:block;text-align:center;color:var(--faint);font-size:12px;letter-spacing:.06em;margin-top:14px}}
+.sub a{{color:var(--amber);text-decoration:none}}
+.sub a:hover{{color:var(--bone)}}
+</style></head><body><div class="wrap"><form class="box" method="post">
+<div class="brand"><span class="led"></span>klyvo</div>
+<p class="hint">регистрация</p>
+<p class="note">Без почты — восстановить пароль пока нельзя, храни его сам. Данные закрыты от других аккаунтов.</p>
+<div class="err">{error}</div>
+<label for="u">Логин</label>
+<input id="u" name="username" autofocus autocomplete="username" pattern="[a-zA-Z0-9_-]{{3,32}}"
+ title="3-32 символа: латиница, цифры, _ и -" value="{username}">
+<label for="p">Пароль</label>
+<input id="p" type="password" name="password" autocomplete="new-password" minlength="10">
+<label for="p2">Пароль ещё раз</label>
+<input id="p2" type="password" name="password2" autocomplete="new-password" minlength="10">
+<button type="submit">Зарегистрироваться</button>
+<a class="back" href="/">← на главную</a>
+<p class="sub">Уже есть аккаунт? <a href="login">Войти</a></p>
 </form></div></body></html>"""
+
+UPLOAD_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d1017"><link rel="icon" href="/favicon.ico?v=3" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3"><link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3">
+<title>Загрузка экспорта — Klyvo</title>
+<style nonce="__NONCE__">{css}
+body{{font-size:15px}}
+.wrap{{min-height:100vh;display:grid;place-items:center;padding:24px;
+ background-image:repeating-linear-gradient(0deg,rgba(255,255,255,.014) 0 1px,transparent 1px 3px)}}
+.box{{width:100%;max-width:440px;background:var(--void-2);border:1px solid var(--line-2);padding:30px 28px}}
+.brand{{font-weight:700;font-size:18px;letter-spacing:.06em;text-transform:uppercase;
+ display:flex;align-items:center;gap:10px;margin-bottom:4px}}
+.led{{width:8px;height:8px;background:var(--pass);box-shadow:0 0 9px var(--pass)}}
+.hint{{color:var(--faint);font-size:12px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 8px}}
+.note{{color:var(--dim);font-size:12.5px;line-height:1.7;margin:0 0 22px}}
+.note code{{color:var(--amber)}}
+input[type=file]{{width:100%;background:var(--void);border:1px solid var(--line-2);
+ color:var(--bone);font-family:var(--mono);font-size:13px;padding:11px 13px;margin-bottom:16px}}
+button{{width:100%;background:var(--amber);color:var(--void);border:1px solid var(--amber);
+ font-family:var(--mono);font-weight:700;font-size:14px;letter-spacing:.06em;text-transform:uppercase;padding:12px;cursor:pointer}}
+button:hover{{background:var(--bone);border-color:var(--bone)}}
+.msg{{font-size:13px;margin-top:16px;min-height:1em}}
+.msg.ok{{color:var(--pass)}}
+.msg.err{{color:var(--block)}}
+a.back{{display:block;text-align:center;color:var(--faint);font-size:12px;
+ letter-spacing:.06em;margin-top:18px;text-decoration:none}}
+a.back:hover{{color:var(--amber)}}
+</style></head><body><div class="wrap"><div class="box">
+<div class="brand"><span class="led"></span>klyvo</div>
+<p class="hint">загрузка экспорта</p>
+<p class="note">На своей машине: <code>python3 klyvo_journal.py --export</code> — соберёт
+файл со всей историей, замаскирует секреты и пути. Открой его и глянь глазами,
+потом загрузи сюда.</p>
+<input type="file" id="f" accept=".json">
+<button id="up">Загрузить</button>
+<div class="msg" id="msg" aria-live="polite"></div>
+<a class="back" href="/">← в дашборд</a>
+</div></div>
+<script nonce="__NONCE__">
+const f=document.getElementById('f'), msg=document.getElementById('msg');
+document.getElementById('up').addEventListener('click', async () => {{
+  const file=f.files[0];
+  if(!file){{msg.className='msg err';msg.textContent='Выбери файл.';return;}}
+  msg.className='msg';msg.textContent='Загружаю…';
+  try{{
+    const r=await fetch('api/upload',{{method:'POST',body:file}});
+    const j=await r.json();
+    if(r.ok){{msg.className='msg ok';msg.textContent=`Готово: +${{j.blocks}} перехватов, +${{j.actions}} действий.`;}}
+    else{{msg.className='msg err';msg.textContent=j.error||'Ошибка загрузки.';}}
+  }}catch(e){{msg.className='msg err';msg.textContent='Не получилось — проверь соединение.';}}
+}});
+</script></body></html>"""
+
+# Фрагменты, подставляемые в LOGIN_PAGE/PAGE в режимах multiuser/central —
+# в режиме single подставляется "" и вид страницы не меняется вообще.
+_UFIELD = ('<label for="u">Логин</label>\n'
+           '<input id="u" name="username" autofocus autocomplete="username">\n')
+_REGLINK = '<p class="sub">Нет аккаунта? <a href="register">Зарегистрироваться</a></p>\n'
+_UPLOAD_NAV = '<a class="lnk" href="upload">Загрузить</a>\n    '
+_FOOT_LOCAL = 'Данные читаются локально из <code class="mono">.klyvo/</code>. Ничего не отправляется наружу.'
+_FOOT_MULTIUSER = 'Данные загружены тобой вручную через <code class="mono">--export</code>. Видны только тебе.'
 
 
 PAGE = """<!doctype html>
@@ -327,7 +625,7 @@ td code{font-family:var(--mono);word-break:break-all;color:var(--bone)}
   <span class="hctl">
     <label class="sw"><input type="checkbox" id="auto"><span class="track"></span><span class="rtext">авто</span></label>
     <button class="btn" id="refresh">Обновить</button>
-    <a class="lnk" href="logout">Выйти</a>
+    __EXTRA_NAV__<a class="lnk" href="logout">Выйти</a>
   </span>
 </div></header>
 
@@ -341,7 +639,7 @@ td code{font-family:var(--mono);word-break:break-all;color:var(--bone)}
   </div>
   <div id="view"></div>
   <div class="foot">
-    <span>Данные читаются локально из <code class="mono">.klyvo/</code>. Ничего не отправляется наружу.</span>
+    <span>__FOOT_NOTE__</span>
     <span id="upd" aria-live="polite"></span>
   </div>
 </div>
@@ -447,9 +745,12 @@ fetchData();
 
 # ── HTTP ─────────────────────────────────────────────────────────────────────
 class Handler(BaseHTTPRequestHandler):
-    project_root = "."
-    auth = None          # dict или None (None → без входа)
-    base = ""            # публичный префикс за прокси, напр. "/dashboard"
+    mode = "single"       # "single" (как раньше) | "multiuser" (онлайн-хостинг) | "central"
+    project_root = "."    # используется в single/central
+    auth = None           # dict или None — режим single
+    central_auth_url = None   # режим central: куда стучаться для проверки пароля
+    local_secret = None       # режим central: секрет ТОЛЬКО для локальной сессионной куки
+    base = ""             # публичный префикс за прокси, напр. "/dashboard"
     server_version = "klyvo"   # не раскрывать версию BaseHTTP/Python в Server-заголовке
     sys_version = ""
 
@@ -476,7 +777,7 @@ class Handler(BaseHTTPRequestHandler):
     def _send_html(self, template, status=200):
         """Отдать HTML с CSP на nonce (инлайновые script/style разрешены только по nonce)."""
         nonce = secrets.token_urlsafe(16)
-        html = template.replace("__NONCE__", nonce)
+        page = template.replace("__NONCE__", nonce)
         # script — строго по nonce (главная защита от XSS); style — 'unsafe-inline',
         # т.к. дашборд использует инлайновые style-атрибуты для полосок (CSS-инъекция
         # некритична, выполнение скриптов при этом остаётся заблокированным).
@@ -484,8 +785,11 @@ class Handler(BaseHTTPRequestHandler):
                f"script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; "
                "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
                "base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
-        self._send(html, "text/html; charset=utf-8", status,
+        self._send(page, "text/html; charset=utf-8", status,
                    extra_headers=[("Content-Security-Policy", csp)])
+
+    def _send_json(self, obj, status=200):
+        self._send(json.dumps(obj, ensure_ascii=False), "application/json; charset=utf-8", status)
 
     def _redirect(self, location, cookie=None):
         self.send_response(303)
@@ -510,18 +814,212 @@ class Handler(BaseHTTPRequestHandler):
         return ck[SESSION_COOKIE].value if SESSION_COOKIE in ck else ""
 
     def _authed(self):
+        """Режим single."""
         return self.auth is None or valid_session(self.auth, self._session_token())
+
+    def _current_username(self):
+        """Режимы multiuser/central — имя пользователя текущей сессии, иначе None."""
+        if self.mode == "multiuser":
+            data = load_users()
+            secret = (data or {}).get("secret")
+        elif self.mode == "central":
+            secret = self.local_secret
+        else:
+            return None
+        if not secret:
+            return None
+        return valid_user_session(secret, self._session_token())
+
+    def _client_ip(self):
+        return self.client_address[0]
 
     def _path(self):
         return self.path.split("?", 1)[0].rstrip("/") or "/"
 
-    # -- routes --
+    def _read_body(self, limit=None):
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        if limit and length > limit:
+            return None
+        return self.rfile.read(length) if length else b""
+
+    # -- routes: multiuser (онлайн-хостинг для тестеров) --
+    def _do_get_multiuser(self, path):
+        if path == "/register":
+            self._send_html(REGISTER_PAGE.format(css=_CSS, error="", username=""))
+            return True
+        if path == "/login":
+            self._send_html(LOGIN_PAGE.format(css=_CSS, error="", ufield=_UFIELD, below=_REGLINK))
+            return True
+        if path == "/logout":
+            self._redirect((self.base or "") + "/login", cookie=self._cookie("", 0))
+            return True
+        user = self._current_username()
+        if not user:
+            self._redirect((self.base or "") + "/login")
+            return True
+        if path == "/upload":
+            self._send_html(UPLOAD_PAGE.format(css=_CSS))
+            return True
+        if path == "/api/data":
+            data = collect(_user_root(user))
+            data["project"] = user
+            self._send_json(data)
+            return True
+        if path == "/" or path.startswith("/index"):
+            self._send_html(PAGE.replace("__EXTRA_NAV__", _UPLOAD_NAV).replace("__FOOT_NOTE__", _FOOT_MULTIUSER))
+            return True
+        return False
+
+    def _do_post_multiuser(self, path):
+        if path == "/register":
+            if rate_limited("register", self._client_ip()):
+                self._send_html(REGISTER_PAGE.format(
+                    css=_CSS, error="Слишком много попыток, попробуй через несколько минут.",
+                    username=""), status=429)
+                return True
+            body = self._read_body(limit=8192)
+            form = parse_qs((body or b"").decode("utf-8", "replace"))
+            username = (form.get("username") or [""])[0].strip()
+            password = (form.get("password") or [""])[0]
+            password2 = (form.get("password2") or [""])[0]
+            err = "Пароли не совпадают." if password != password2 else register_user(username, password)
+            if err:
+                self._send_html(REGISTER_PAGE.format(
+                    css=_CSS, error=err, username=html.escape(username, quote=True)), status=400)
+                return True
+            data = load_users()
+            token = make_user_session(data["secret"], username)
+            self._redirect((self.base or "") + "/upload", cookie=self._cookie(token, SESSION_TTL))
+            return True
+
+        if path == "/login":
+            if rate_limited("login", self._client_ip()):
+                self._send_html(LOGIN_PAGE.format(
+                    css=_CSS, error="Слишком много попыток, попробуй через несколько минут.",
+                    ufield=_UFIELD, below=_REGLINK), status=429)
+                return True
+            body = self._read_body(limit=8192)
+            form = parse_qs((body or b"").decode("utf-8", "replace"))
+            username = (form.get("username") or [""])[0].strip()
+            password = (form.get("password") or [""])[0]
+            if username and password and verify_user(username, password):
+                data = load_users()
+                token = make_user_session(data["secret"], username)
+                self._redirect((self.base or "") + "/", cookie=self._cookie(token, SESSION_TTL))
+            else:
+                time.sleep(0.6)  # притормозить перебор
+                self._send_html(LOGIN_PAGE.format(
+                    css=_CSS, error="Неверный логин или пароль.",
+                    ufield=_UFIELD, below=_REGLINK), status=401)
+            return True
+
+        if path == "/api/auth/verify":
+            # Вызывается ЛОКАЛЬНЫМИ дашбордами в режиме central-auth — без сессии,
+            # это и есть сама проверка пароля. Самый чувствительный к перебору роут.
+            if rate_limited("verify", self._client_ip()):
+                self._send_json({"ok": False}, status=429)
+                return True
+            body = self._read_body(limit=4096)
+            try:
+                payload = json.loads((body or b"{}").decode("utf-8"))
+            except json.JSONDecodeError:
+                payload = {}
+            username = (payload.get("username") or "").strip()
+            password = payload.get("password") or ""
+            if rate_limited("verify", f"user:{username}"):
+                self._send_json({"ok": False}, status=429)
+                return True
+            ok = bool(username and password and verify_user(username, password))
+            if not ok:
+                time.sleep(0.6)
+            self._send_json({"ok": ok})
+            return True
+
+        if path == "/api/upload":
+            user = self._current_username()
+            if not user:
+                self._send_json({"error": "не авторизован"}, status=401)
+                return True
+            body = self._read_body(limit=5_000_000)  # экспорт таким большим не бывает
+            if body is None:
+                self._send_json({"error": "файл слишком большой"}, status=413)
+                return True
+            try:
+                bundle = json.loads(body.decode("utf-8"))
+                added_b, added_a = merge_export(user, bundle)
+            except (json.JSONDecodeError, ValueError) as e:
+                self._send_json({"error": str(e)}, status=400)
+                return True
+            except UnicodeDecodeError:
+                self._send_json({"error": "не похоже на текстовый JSON-файл"}, status=400)
+                return True
+            self._send_json({"blocks": added_b, "actions": added_a})
+            return True
+
+        return False
+
+    # -- routes: central (локальный дашборд, пароль сверяется на сервере) --
+    def _do_get_central(self, path):
+        if path == "/login":
+            self._send_html(LOGIN_PAGE.format(css=_CSS, error="", ufield=_UFIELD, below=""))
+            return True
+        if path == "/logout":
+            self._redirect((self.base or "") + "/login", cookie=self._cookie("", 0))
+            return True
+        if not self._current_username():
+            self._redirect((self.base or "") + "/login")
+            return True
+        if path == "/api/data":
+            self._send_json(collect(self.project_root))
+            return True
+        if path == "/" or path.startswith("/index"):
+            self._send_html(PAGE.replace("__EXTRA_NAV__", "").replace("__FOOT_NOTE__", _FOOT_LOCAL))
+            return True
+        return False
+
+    def _do_post_central(self, path):
+        if path == "/login":
+            if rate_limited("login", self._client_ip()):
+                self._send_html(LOGIN_PAGE.format(
+                    css=_CSS, error="Слишком много попыток, попробуй через несколько минут.",
+                    ufield=_UFIELD, below=""), status=429)
+                return True
+            body = self._read_body(limit=8192)
+            form = parse_qs((body or b"").decode("utf-8", "replace"))
+            username = (form.get("username") or [""])[0].strip()
+            password = (form.get("password") or [""])[0]
+            ok = remote_verify(self.central_auth_url, username, password) if username and password else False
+            if ok:
+                token = make_user_session(self.local_secret, username)
+                self._redirect((self.base or "") + "/", cookie=self._cookie(token, SESSION_TTL))
+            elif ok is None:
+                self._send_html(LOGIN_PAGE.format(
+                    css=_CSS, error="Сервер проверки недоступен, попробуй позже.",
+                    ufield=_UFIELD, below=""), status=503)
+            else:
+                time.sleep(0.6)
+                self._send_html(LOGIN_PAGE.format(
+                    css=_CSS, error="Неверный логин или пароль.",
+                    ufield=_UFIELD, below=""), status=401)
+            return True
+        return False
+
+    # -- routes: single (как было всегда, без единого изменения поведения) --
     def do_GET(self):
         path = self._path()
 
+        if self.mode == "multiuser":
+            if not self._do_get_multiuser(path):
+                self._send("404", "text/plain; charset=utf-8", status=404)
+            return
+        if self.mode == "central":
+            if not self._do_get_central(path):
+                self._send("404", "text/plain; charset=utf-8", status=404)
+            return
+
         if self.auth is not None:
             if path == "/login":
-                self._send_html(LOGIN_PAGE.format(css=_CSS, error=""))
+                self._send_html(LOGIN_PAGE.format(css=_CSS, error="", ufield="", below=""))
                 return
             if path == "/logout":
                 self._redirect((self.base or "") + "/login", cookie=self._cookie("", 0))
@@ -534,12 +1032,22 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps(collect(self.project_root), ensure_ascii=False),
                        "application/json; charset=utf-8")
         elif path == "/" or path.startswith("/index"):
-            self._send_html(PAGE)
+            self._send_html(PAGE.replace("__EXTRA_NAV__", "").replace("__FOOT_NOTE__", _FOOT_LOCAL))
         else:
             self._send("404", "text/plain; charset=utf-8", status=404)
 
     def do_POST(self):
         path = self._path()
+
+        if self.mode == "multiuser":
+            if not self._do_post_multiuser(path):
+                self._send("404", "text/plain; charset=utf-8", status=404)
+            return
+        if self.mode == "central":
+            if not self._do_post_central(path):
+                self._send("404", "text/plain; charset=utf-8", status=404)
+            return
+
         if self.auth is not None and path == "/login":
             length = int(self.headers.get("Content-Length", 0) or 0)
             body = self.rfile.read(length).decode("utf-8", "replace") if length else ""
@@ -549,7 +1057,7 @@ class Handler(BaseHTTPRequestHandler):
                                cookie=self._cookie(make_session(self.auth), SESSION_TTL))
             else:
                 time.sleep(0.6)  # притормозить перебор
-                self._send_html(LOGIN_PAGE.format(css=_CSS, error="Неверный пароль"), status=401)
+                self._send_html(LOGIN_PAGE.format(css=_CSS, error="Неверный пароль", ufield="", below=""), status=401)
             return
         self._send("404", "text/plain; charset=utf-8", status=404)
 
@@ -558,11 +1066,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Локальный веб-дашборд Klyvo")
-    parser.add_argument("--project", default=os.getcwd(), help="корень проекта (где .klyvo/)")
+    parser = argparse.ArgumentParser(description="Веб-дашборд Klyvo")
+    parser.add_argument("--project", default=os.getcwd(), help="корень проекта (где .klyvo/) — режимы single/central")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--set-password", metavar="USER",
-                        help="задать пароль входа и выйти (пароль спросит скрытно)")
+                        help="задать пароль входа и выйти (режим single, пароль спросит скрытно)")
+    parser.add_argument("--multiuser", action="store_true",
+                        default=os.environ.get("KLYVO_WEB_MULTIUSER") == "1",
+                        help="онлайн-режим: регистрация, у каждого свои данные (для общего хостинга)")
+    parser.add_argument("--central-auth", metavar="URL",
+                        default=os.environ.get("KLYVO_WEB_CENTRAL_AUTH_URL"),
+                        help="локальный дашборд: пароль сверяется на этом сервере один раз при входе, "
+                             "дальше обычная локальная сессия — данные остаются локальными")
     args = parser.parse_args(argv)
 
     if args.set_password:
@@ -574,13 +1089,26 @@ def main(argv=None):
         print(f"Пароль задан, файл: {path}")
         return 0
 
-    Handler.project_root = os.path.abspath(args.project)
-    Handler.auth = load_auth()
     Handler.base = os.environ.get("KLYVO_WEB_BASE", "").rstrip("/")
 
+    if args.multiuser:
+        Handler.mode = "multiuser"
+        init_users()
+        mode_label = "онлайн, мультипользовательский"
+    elif args.central_auth:
+        Handler.mode = "central"
+        Handler.central_auth_url = args.central_auth
+        Handler.local_secret = load_or_create_local_secret()
+        Handler.project_root = os.path.abspath(args.project)
+        mode_label = f"локальный, вход через {args.central_auth}"
+    else:
+        Handler.mode = "single"
+        Handler.project_root = os.path.abspath(args.project)
+        Handler.auth = load_auth()
+        mode_label = "вход включён" if Handler.auth else "без входа"
+
     server = HTTPServer(("127.0.0.1", args.port), Handler)  # только локально
-    mode = "вход включён" if Handler.auth else "без входа"
-    print(f"Klyvo дашборд: http://127.0.0.1:{args.port}  (проект: {Handler.project_root}, {mode})")
+    print(f"Klyvo дашборд: http://127.0.0.1:{args.port}  ({mode_label})")
     print("Ctrl+C — остановить.")
     try:
         server.serve_forever()
