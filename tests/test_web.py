@@ -151,6 +151,26 @@ for _ in range(20):
 check("rate-limit срабатывает после серии попыток", blocked_seen)
 klyvo_web._rate_hits.clear()
 
+# ── _client_ip: должен доверять X-Real-IP от nginx, а не путать всех клиентов
+# с адресом самого nginx (127.0.0.1) — иначе rate-limit становится общим
+# бюджетом на всех пользователей сразу, что тривиально DoS-ится ──
+class _FakeReq:
+    def __init__(self, headers, peer):
+        self.headers = headers
+        self.client_address = (peer, 12345)
+
+
+class _Headers(dict):
+    def get(self, k, default=None):
+        return super().get(k, default)
+
+
+check("с X-Real-IP — берётся он, а не адрес nginx",
+      klyvo_web.Handler._client_ip(_FakeReq(_Headers({"X-Real-IP": "203.0.113.9"}), "127.0.0.1"))
+      == "203.0.113.9")
+check("без X-Real-IP — берётся адрес сокета (локальный запуск без прокси)",
+      klyvo_web.Handler._client_ip(_FakeReq(_Headers({}), "192.168.1.5")) == "192.168.1.5")
+
 # ── central-auth: remote_verify против настоящего multiuser-сервера в треде ──
 import threading
 from http.server import HTTPServer

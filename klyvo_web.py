@@ -831,7 +831,13 @@ class Handler(BaseHTTPRequestHandler):
         return valid_user_session(secret, self._session_token())
 
     def _client_ip(self):
-        return self.client_address[0]
+        """Реальный IP клиента. Сервер слушает только 127.0.0.1 и достижим
+        только через nginx, поэтому X-Real-IP от него — доверенный источник
+        (nginx сам его проставляет, не пропуская чужой заголовок насквозь).
+        Без этого self.client_address[0] всегда был бы 127.0.0.1 (адрес nginx),
+        и rate-limit стал бы одним общим бюджетом на всех пользователей сразу."""
+        real_ip = self.headers.get("X-Real-IP")
+        return real_ip.strip() if real_ip else self.client_address[0]
 
     def _path(self):
         return self.path.split("?", 1)[0].rstrip("/") or "/"
