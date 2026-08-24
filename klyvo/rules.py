@@ -62,6 +62,23 @@ _RULES_RAW = [
     ("supabase_projects_delete", CRITICAL, r"\bsupabase\s+projects\s+delete\b", "Удаление проекта Supabase"),
     ("wrangler_d1_drop", CRITICAL, r"\bwrangler\s+d1\b.*\bDROP\b", "Удаление таблицы Cloudflare D1"),
     ("turso_db_destroy", CRITICAL, r"\bturso\s+db\s+destroy\b", "Удаление базы Turso"),
+    ("neon_branch_delete", CRITICAL, r"\bneon(ctl)?\s+(branches?|databases?)\s+delete\b", "Удаление ветки или базы Neon"),
+    ("planetscale_delete", CRITICAL, r"\bpscale\s+(database|branch)\s+delete\b", "Удаление базы или ветки PlanetScale"),
+
+    # ── Хостинг: тома, инстансы и приложения вместе с данными ───────────────
+    # Разрушение здесь необратимо и часто уносит бэкапы вместе с данными, если
+    # провайдер хранит их рядом. Именно так был потерян продакшн PocketOS.
+    ("railway_destroy", CRITICAL, r"\brailway\s+(volume|service|environment|project)\s+(delete|remove)\b", "Удаление тома, сервиса или проекта Railway"),
+    ("railway_api_mutation", CRITICAL, r"backboard\.railway\.app.*\b(volumeDelete|serviceDelete|projectDelete|environmentDelete)\b", "Разрушительная мутация к API Railway"),
+    ("fly_volume_destroy", CRITICAL, r"\bfly(ctl)?\s+(volumes?|apps?|postgres)\s+(destroy|delete)\b", "Удаление тома или приложения Fly.io"),
+    ("render_delete", CRITICAL, r"\brender\s+(services?|databases?|disks?)\s+delete\b", "Удаление сервиса или базы Render"),
+    ("heroku_pg_reset", CRITICAL, r"\bheroku\s+pg:reset\b", "Полная очистка базы Heroku Postgres"),
+    ("heroku_destroy", CRITICAL, r"\bheroku\s+apps?:destroy\b", "Удаление приложения Heroku вместе с аддонами"),
+    ("aws_rds_delete", CRITICAL, r"\baws\s+rds\s+delete-(db-instance|db-cluster|db-snapshot)\b", "Удаление инстанса, кластера или снимка AWS RDS"),
+    ("aws_s3_rb", CRITICAL, r"\baws\s+s3\s+rb\b.*--force|\baws\s+s3\s+rm\b.*--recursive", "Рекурсивное удаление содержимого бакета S3"),
+    ("aws_dynamodb_delete", CRITICAL, r"\baws\s+dynamodb\s+delete-table\b", "Удаление таблицы DynamoDB"),
+    ("gcloud_sql_delete", CRITICAL, r"\bgcloud\s+sql\s+instances\s+delete\b", "Удаление инстанса Cloud SQL"),
+    ("vercel_env_rm_prod", WARNING, r"\bvercel\s+env\s+(rm|remove)\b.*\bproduction\b", "Удаление продакшн-переменной окружения Vercel"),
 
     # ── NoSQL ───────────────────────────────────────────────────────────────
     ("mongo_drop_database", CRITICAL, r"\bdropDatabase\s*\(", "Удаление базы MongoDB (dropDatabase())"),

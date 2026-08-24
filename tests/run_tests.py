@@ -28,6 +28,22 @@ DANGEROUS = [
     "UPDATE users SET active=false;",
     "alembic downgrade base",
     "python manage.py flush --noinput",
+
+    # Хостинг-провайдеры: агент чаще сносит том или инстанс через CLI/API,
+    # чем таблицу запросом. Публичные инциденты 2025-2026 — именно про это,
+    # и до этих правил Klyvo пропускал весь класс целиком.
+    'railway volume delete prod',
+    'curl -X POST https://backboard.railway.app/graphql/v2 -d \'{"query":"mutation{volumeDelete(id:\\\\"x\\\\")}"}\'',
+    'flyctl volumes destroy vol_123',
+    'aws rds delete-db-instance --db-instance-identifier prod',
+    'aws s3 rm s3://backups --recursive',
+    'aws dynamodb delete-table --table-name orders',
+    'gcloud sql instances delete prod-db',
+    'heroku pg:reset DATABASE_URL --confirm app',
+    'heroku apps:destroy --app prod',
+    'render services delete srv-123',
+    'neonctl branches delete main',
+    'pscale database delete app main',
     "npx prisma migrate reset",
     "dropdb production",
     "mongo --eval 'db.users.drop()'",
@@ -55,6 +71,11 @@ SAFE = [
     "createdb myapp_dev",
     "cat schema.sql",
     "npm run build",
+    'railway logs --service api',
+    'aws s3 ls s3://backups',
+    'flyctl status',
+    'heroku ps',
+    'gcloud sql instances describe prod-db',
 ]
 
 

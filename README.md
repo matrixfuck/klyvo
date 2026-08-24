@@ -43,7 +43,7 @@ Klyvo срабатывает до выполнения команды, поэт�
 
 `.claude/hooks/guard.py` подключается как `PreToolUse`-хук на инструмент `Bash`
 (см. `.claude/settings.json`). Сам хук тонкий: логика детекции лежит в общем
-ядре `klyvo/rules.py` (36 правил и 2 эвристики), чтобы её можно было
+ядре `klyvo/rules.py` (49 правил и 2 эвристики), чтобы её можно было
 переиспользовать в адаптерах под Cursor и Codex.
 
 Что покрывают правила: чистый SQL (`DROP`/`TRUNCATE`/`ALTER ... DROP COLUMN`),
@@ -52,7 +52,10 @@ Klyvo срабатывает до выполнения команды, поэт�
 (Prisma, Rails, Django, Alembic, Knex, Sequelize, Goose, TypeORM, dbmate),
 облачные БД (`supabase db reset`, D1, Turso), NoSQL (`.drop()`, `dropDatabase()`,
 `deleteMany({})`, `FLUSHALL`) и инфраструктуру с данными (удаление
-`.sqlite`-файлов, `docker volume rm`, `kubectl delete pvc`, `terraform destroy`).
+`.sqlite`-файлов, `docker volume rm`, `kubectl delete pvc`, `terraform destroy`), а также разрушительные операции у хостинг-провайдеров,
+где живут базы: удаление томов и сервисов Railway (включая прямые мутации
+к его API), Fly.io, Render и Heroku, инстансов AWS RDS и Cloud SQL, таблиц
+DynamoDB и рекурсивную очистку бакетов S3.
 
 У каждого правила есть уровень. Критичное хук блокирует жёстко: команда не
 выполнится даже в режиме автоодобрения. Предупреждение (удаление индекса,
