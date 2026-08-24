@@ -7,7 +7,28 @@
 
 ![Klyvo блокирует DROP TABLE до того, как его выполнит агент](assets/klyvo-demo.gif)
 
-Установка за три шага: [INSTALL.md](INSTALL.md).
+## Установка
+
+```bash
+curl -fsSL https://klyvo.tech/install.sh | sh
+```
+
+Другой агент — параметром: `| sh -s -- cursor` (см. [список](#поддерживаемые-агенты)).
+
+Не любите запускать скрипты из интернета — правильно делаете, это ровно тот
+сценарий, от которого Klyvo и защищает. [install.sh](install.sh) короткий, его
+можно прочитать целиком, а можно поставить руками теми же тремя командами:
+[INSTALL.md](INSTALL.md).
+
+---
+
+**English.** Klyvo blocks destructive database commands — `DROP`, `TRUNCATE`,
+`DELETE` without `WHERE`, migration resets — before your AI coding agent runs
+them. Runs locally as a pre-execution hook, makes no network calls, and works
+even in auto-approve mode. Install with the command above. Documentation below
+is in Russian; issues and pull requests in English are welcome.
+
+---
 
 ## Почему не хватает встроенных чекпоинтов
 
@@ -151,6 +172,21 @@ python3 tests/test_opencode_plugin.py  # JS-плагин opencode исполня
 Тесты симулируют формат `PreToolUse`/`PostToolUse`-событий из
 `code.claude.com/docs/en/hooks`. Оба хука проверены и живым запуском в
 headless-сессии Claude Code.
+
+## Сломалось или сработало не на том
+
+Ложное срабатывание — главная причина молча удалить инструмент, поэтому о нём
+особенно важно сообщить: правила сигнатурные, и безобидная команда с триггерным
+словом внутри действительно может быть перехвачена.
+
+- Ложное срабатывание или пропущенная опасная команда —
+  [заведите issue](https://github.com/matrixfuck/klyvo/issues/new/choose),
+  там есть готовые шаблоны.
+- Не хотите публично — напишите на support@klyvo.tech.
+
+Быстрый обход, пока разбираемся: добавьте команду в `allowlist` в
+`.klyvo/config.json` (см. [настройку](#настройка-klyvoconfigjson)) — скан её
+пропустит, остальные правила продолжат работать.
 
 ## Версия
 

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Написать напрямую
+    url: mailto:support@klyvo.tech
+    about: Если не хочется писать публично — почта автора.

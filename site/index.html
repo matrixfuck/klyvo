@@ -353,28 +353,25 @@
     <div class="wrap pad">
       <span class="eye">установка · три шага</span>
       <h2>Поставить на Claude Code</h2>
-      <p class="sub">Нужен только Python 3. Шаги ниже — под Claude Code; для остальных агентов из <a href="#agents" class="mono" style="color:var(--amber)">списка выше</a> команда установки отличается на один флаг, все — в INSTALL.md.</p>
+      <p class="sub">Нужен только Python 3 и git. Для другого агента из <a href="#agents" class="mono" style="color:var(--amber)">списка выше</a> добавь его имя параметром. Не хочешь запускать скрипт из интернета — ставится и вручную, тремя командами из INSTALL.md.</p>
       <div class="steps">
         <div class="step">
-          <div class="no">01 — СКАЧАТЬ</div>
-          <h4>Клонировать репозиторий</h4>
-          <pre><span class="pr">$ </span>git clone \
-  https://github.com/\
-  matrixfuck/klyvo.git \
-  ~/klyvo</pre>
+          <div class="no">01 — ПОСТАВИТЬ</div>
+          <h4>Одна команда</h4>
+          <pre><span class="pr">$ </span>curl -fsSL \
+  https://klyvo.tech/\
+  install.sh | sh</pre>
+          <p>Кладёт код в <code>~/klyvo</code> и аккуратно дописывает хук, остальные настройки не трогает.</p>
         </div>
         <div class="step">
-          <div class="no">02 — ПОСТАВИТЬ ХУК</div>
-          <h4>Запустить установщик</h4>
-          <pre><span class="pr">$ </span>python3 \
-  ~/klyvo/tools/\
-  install_hooks.py</pre>
-          <p>Аккуратно дописывает хук, остальные настройки не трогает.</p>
-        </div>
-        <div class="step">
-          <div class="no">03 — ПЕРЕЗАПУСТИТЬ</div>
+          <div class="no">02 — ПЕРЕЗАПУСТИТЬ</div>
           <h4>Перезапустить агента</h4>
-          <p>Хуки читаются при старте. Готово — guard активен, дальше он работает молча и вмешивается только на опасном.</p>
+          <p>Хуки читаются при старте. Дальше guard работает молча и вмешивается только на опасном.</p>
+        </div>
+        <div class="step">
+          <div class="no">03 — ПРОВЕРИТЬ</div>
+          <h4>Убедиться, что живой</h4>
+          <p>Попроси агента выполнить безобидную команду с триггерным словом внутри — например <code>echo</code> с текстом про очистку таблицы. Она должна быть перехвачена.</p>
         </div>
       </div>
     </div>
