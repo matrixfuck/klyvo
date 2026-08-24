@@ -80,6 +80,15 @@ _RULES_RAW = [
     ("gcloud_sql_delete", CRITICAL, r"\bgcloud\s+sql\s+instances\s+delete\b", "Удаление инстанса Cloud SQL"),
     ("vercel_env_rm_prod", WARNING, r"\bvercel\s+env\s+(rm|remove)\b.*\bproduction\b", "Удаление продакшн-переменной окружения Vercel"),
 
+    # ── Катастрофичное удаление файлов ──────────────────────────────────────
+    # Klyvo не пытается покрыть rm целиком — только случаи, где цель это КОРЕНЬ
+    # (/, ~, $HOME) и восстановить нечего. Уборка вида `rm -rf ~/projects/old`
+    # проходит свободно: там после ~ идёт путь, и правило не срабатывает.
+    ("fs_rm_root", CRITICAL, r"\brm\b(?=[^;&|]*\s-[a-zA-Z]*[rR])[^;&|]*\s/\s*\*?\s*(?:$|[;&|])", "Рекурсивное удаление корня файловой системы"),
+    ("fs_rm_home", CRITICAL, r"\brm\b(?=[^;&|]*\s-[a-zA-Z]*[rR])[^;&|]*\s(?:~|\$\{?HOME\}?|\"\$HOME\"|'\$HOME')/?\s*\*?\s*(?:$|[;&|])", "Рекурсивное удаление домашнего каталога"),
+    ("fs_rm_cwd", WARNING, r"\brm\b(?=[^;&|]*\s-[a-zA-Z]*[rR])[^;&|]*\s(?:\.|\./|\*)\s*(?:$|[;&|])", "Рекурсивное удаление всего текущего каталога"),
+    ("fs_disk_wipe", CRITICAL, r"\bmkfs(\.\w+)?\s+/dev/|\bdd\s[^;&|]*\bof=/dev/(sd|nvme|hd|vd|disk)", "Затирание диска целиком (mkfs / dd на устройство)"),
+
     # ── NoSQL ───────────────────────────────────────────────────────────────
     ("mongo_drop_database", CRITICAL, r"\bdropDatabase\s*\(", "Удаление базы MongoDB (dropDatabase())"),
     ("mongo_drop_collection", CRITICAL, r"\.drop\s*\(\s*\)", "Удаление коллекции MongoDB (.drop())"),

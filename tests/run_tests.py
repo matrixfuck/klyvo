@@ -29,6 +29,16 @@ DANGEROUS = [
     "alembic downgrade base",
     "python manage.py flush --noinput",
 
+    # Катастрофичное удаление файлов: цель — корень, восстанавливать нечего.
+    'rm -rf /',
+    'sudo rm -rf /',
+    'rm -rf /*',
+    'rm -rf ~',
+    'rm -rf ~/',
+    'rm -rf $HOME',
+    'mkfs.ext4 /dev/sda1',
+    'dd if=/dev/zero of=/dev/sda bs=1M',
+
     # Хостинг-провайдеры: агент чаще сносит том или инстанс через CLI/API,
     # чем таблицу запросом. Публичные инциденты 2025-2026 — именно про это,
     # и до этих правил Klyvo пропускал весь класс целиком.
@@ -71,6 +81,14 @@ SAFE = [
     "createdb myapp_dev",
     "cat schema.sql",
     "npm run build",
+    # Обычная уборка рядом с корнем — обязана проходить, иначе правила
+    # выше сделают инструмент невыносимым в повседневной работе.
+    'rm -rf ~/projects/old-thing',
+    'rm -rf ./build',
+    'rm -rf node_modules',
+    'rm -rf /tmp/klyvo-cache',
+    'rm -rf $HOME/.cache/pip',
+    'dd if=backup.img of=restored.img',
     'railway logs --service api',
     'aws s3 ls s3://backups',
     'flyctl status',
@@ -132,6 +150,8 @@ def main():
         ("DROP TABLE users;", "deny", "critical"),
         ("ALTER TABLE users DROP COLUMN email;", "ask", "warning"),
         ("DROP INDEX idx_users;", "ask", "warning"),
+        ("", "allow", "пусто"),
+        ("rm -rf .", "ask", "warning"),
     ]
     for cmd, expected, label in mapping:
         got = decision_for(scan(cmd))

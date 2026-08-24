@@ -19,7 +19,15 @@ def evaluate(command: str, project_root: str):
 
 
 def decision_for(findings) -> str:
-    """critical → 'deny' (жёсткий блок, работает и в YOLO/auto), warning → 'ask'."""
+    """critical → 'deny' (жёсткий блок, работает и в YOLO/auto), warning → 'ask'.
+
+    Пустой список — 'allow'. Все адаптеры и так отсекают его раньше, но функция
+    публичная: если автор следующего адаптера забудет проверку, а мы вернём
+    'ask', каждая безобидная команда начнёт спрашивать подтверждение. Это худший
+    возможный отказ — инструмент станет невыносимым и его снесут.
+    """
+    if not findings:
+        return "allow"
     return "deny" if any(sev == CRITICAL for _, sev, _ in findings) else "ask"
 
 
