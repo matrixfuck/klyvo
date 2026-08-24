@@ -135,6 +135,8 @@ python3 klyvo_web.py --project ~/app --port 9000
 ## Тесты
 
 ```
+python3 tests/all.py           # прогнать всё разом
+
 python3 tests/run_tests.py     # guard: 25 опасных + 14 безопасных команд
 python3 tests/test_journal.py  # журнал: запись событий, рендер сводки, --export
 python3 tests/test_config.py   # правила: config (disable/allowlist/custom) + многострочный WHERE
@@ -143,6 +145,7 @@ python3 tests/test_cursor.py   # адаптер Cursor
 python3 tests/test_install.py  # установщик хуков: запись, идемпотентность, --uninstall
 python3 tests/test_web.py      # сбор данных для дашборда, локальная авторизация (пароль + сессии)
 python3 tests/test_agents.py   # адаптеры Codex/Kimi/opencode
+python3 tests/test_opencode_plugin.py  # JS-плагин opencode исполняется в node
 ```
 
 Тесты симулируют формат `PreToolUse`/`PostToolUse`-событий из
