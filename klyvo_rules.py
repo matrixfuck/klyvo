@@ -71,6 +71,105 @@ def cmd_scan(args):
     return 0
 
 
+AGENT_CONFIGS = [
+    ("Claude Code", "~/.claude/settings.json"),
+    ("Codex", "~/.codex/hooks.json"),
+    ("Cursor", "~/.cursor/hooks.json"),
+    ("Kimi Code", "~/.kimi-code/config.toml"),
+    ("opencode", "~/.config/opencode/plugin/klyvo.js"),
+    ("DeepSeek-Code", "~/.deepseek-code/settings.json"),
+]
+
+
+def cmd_doctor(args):
+    """Сквозная самопроверка: жив ли guard на самом деле.
+
+    Хук намеренно fail-open, поэтому «ничего не происходит» выглядит одинаково и
+    когда всё хорошо, и когда защита отвалилась. Эта команда различает два случая.
+    """
+    import json as _json
+    import subprocess
+    ok = True
+    here = os.path.dirname(os.path.abspath(__file__))
+
+    print("Klyvo — самопроверка\n")
+
+    # 1. ядро
+    try:
+        n = len(BASE_RULES)
+        print(f"[✓] ядро правил загружается: {n} правил")
+    except Exception as e:
+        print(f"[✗] ядро правил не загружается: {e}")
+        return 1
+
+    # 2. реальный хук на заведомо опасной команде — самый важный шаг:
+    # проверяем не функцию scan(), а тот файл, который вызывает агент.
+    hook = os.path.join(here, ".claude", "hooks", "guard.py")
+    probe = "psql -c '" + "DR" + "OP DATABASE prod;'"
+    if not os.path.exists(hook):
+        print(f"[✗] файл хука не найден: {hook}")
+        ok = False
+    else:
+        try:
+            r = subprocess.run(
+                [sys.executable, hook],
+                input=_json.dumps({"tool_name": "Bash", "tool_input": {"command": probe}}),
+                capture_output=True, text=True, timeout=30)
+            out = _json.loads(r.stdout) if r.stdout.strip() else {}
+            got = (out.get("hookSpecificOutput") or {}).get("permissionDecision")
+            if got == "deny":
+                print("[✓] хук отвечает deny на разрушительную команду")
+            else:
+                print(f"[✗] хук НЕ заблокировал разрушительную команду (ответ: {got or 'пусто'})")
+                if r.stderr.strip():
+                    print("    stderr: " + r.stderr.strip()[:200])
+                ok = False
+        except Exception as e:
+            print(f"[✗] не удалось выполнить хук: {e}")
+            ok = False
+
+    # 3. прописан ли хук у агентов — иначе он есть на диске, но никем не зовётся
+    found = []
+    for name, rel in AGENT_CONFIGS:
+        path = os.path.expanduser(rel)
+        if not os.path.exists(path):
+            continue
+        try:
+            text = open(path, encoding="utf-8", errors="replace").read()
+        except Exception:
+            continue
+        if "klyvo" in text.lower():
+            found.append(name)
+    if found:
+        print("[✓] хук прописан в конфигах: " + ", ".join(found))
+    else:
+        print("[✗] ни в одном конфиге агента хук не найден — он никем не вызывается")
+        print("    поставить: python3 " + os.path.join(here, "tools", "install_hooks.py"))
+        ok = False
+
+    # 4. недавние сбои
+    health = os.path.join(os.path.expanduser("~"), ".klyvo", "health.jsonl")
+    rows = []
+    if os.path.exists(health):
+        for ln in open(health, encoding="utf-8"):
+            ln = ln.strip()
+            if ln:
+                try:
+                    rows.append(_json.loads(ln))
+                except ValueError:
+                    pass
+    if rows:
+        print(f"[!] guard давал сбой {len(rows)} раз(а), последний — {rows[-1].get('ts', '?')[:19]}")
+        print(f"    {rows[-1].get('stage')}: {rows[-1].get('error')}")
+        print(f"    подробности: {health}")
+        ok = False
+    else:
+        print("[✓] сбоев guard не зафиксировано")
+
+    print("\n" + ("Всё работает." if ok else "Есть проблемы — см. отметки [✗] и [!] выше."))
+    return 0 if ok else 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Правила Klyvo")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -79,6 +178,7 @@ def main(argv=None):
     t.add_argument("command", help="команда для проверки")
     s = sub.add_parser("scan", help="проверить команду, вывести JSON (decision + findings)")
     s.add_argument("command", help="команда для проверки")
+    sub.add_parser("doctor", help="самопроверка: действительно ли guard работает")
     args = parser.parse_args(argv)
 
     if args.cmd == "list":
@@ -87,6 +187,8 @@ def main(argv=None):
         return cmd_test(args)
     if args.cmd == "scan":
         return cmd_scan(args)
+    if args.cmd == "doctor":
+        return cmd_doctor(args)
     return 1
 
 

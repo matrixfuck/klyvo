@@ -49,6 +49,12 @@ def read_jsonl(path):
     return rows
 
 
+def health_failures():
+    """Сбои guard'а, записанные им самим в ~/.klyvo/health.jsonl."""
+    path = os.path.join(os.path.expanduser("~"), ".klyvo", "health.jsonl")
+    return read_jsonl(path)
+
+
 def latest_session(events):
     for e in reversed(events):
         if e.get("session_id"):
@@ -56,9 +62,19 @@ def latest_session(events):
     return None
 
 
-def render(actions, blocked, session_label):
+def render(actions, blocked, session_label, failures=None):
     lines = []
     lines.append("═══ Сводка сессии Klyvo ═══")
+    # Предупреждение идёт до всего остального: «ничего не перехвачено» при
+    # сломанном guard'е означает не «было чисто», а «никто не смотрел».
+    if failures:
+        last = failures[-1]
+        lines.append("")
+        lines.append(f"❗ Klyvo давал сбой {len(failures)} раз(а) — в эти моменты команды "
+                     f"проходили БЕЗ проверки.")
+        lines.append(f"   последний: {last.get('ts', '?')[:19]} — {last.get('stage')}: "
+                     f"{last.get('error', '')[:120]}")
+        lines.append("   разобраться: python3 klyvo_rules.py doctor")
     if session_label:
         lines.append(f"Сессия: {session_label}")
 
@@ -196,7 +212,7 @@ def main(argv=None):
         actions = [a for a in actions if a.get("session_id") == target]
         blocked = [b for b in blocked if b.get("session_id") == target]
 
-    sys.stdout.write(render(actions, blocked, label))
+    sys.stdout.write(render(actions, blocked, label, health_failures()))
 
     if args.export is not None:
         bundle = export_bundle(actions, blocked, base)
