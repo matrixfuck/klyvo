@@ -49,9 +49,17 @@ def main():
 
     # Решение отдаём раньше журнала — блокировка не должна зависеть от записи.
     if decision == "deny":
+        # Формат сверен с исходниками openai/codex: schema.rs, структура
+        # PreToolUseHookSpecificOutputWire — camelCase, hookEventName обязателен,
+        # и стоит deny_unknown_fields, поэтому ни одного лишнего ключа быть не
+        # должно: любой посторонний ключ роняет разбор всего ответа, и команда
+        # проходит как ни в чём не бывало.
         print(json.dumps({
-            "permissionDecision": "deny",
-            "permissionDecisionReason": reason,
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }
         }, ensure_ascii=False))
         sys.stdout.flush()
     # warning → ничего не печатаем: Codex не умеет ask, команда пройдёт, но будет

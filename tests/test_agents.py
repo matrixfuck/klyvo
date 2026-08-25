@@ -36,11 +36,23 @@ def run_codex(command, cwd):
 with tempfile.TemporaryDirectory() as tmp:
     out, code = run_codex(f"psql -c \"{DROP}\"", tmp)
     check("codex: критичная → exit 0", code == 0)
-    check("codex: плоский permissionDecision=deny",
-          isinstance(out, dict) and out.get("permissionDecision") == "deny")
-    check("codex: НЕТ обёртки hookSpecificOutput (Codex её отвергает)",
-          isinstance(out, dict) and "hookSpecificOutput" not in out)
-    check("codex: есть текст причины", bool(out.get("permissionDecisionReason")))
+    # Контракт сверен с исходниками openai/codex (codex-rs/hooks/src/schema.rs,
+    # PreToolUseHookSpecificOutputWire): camelCase, обязательный hookEventName и
+    # deny_unknown_fields. Раньше здесь закреплялся плоский ответ без обёртки —
+    # его Codex молча отбрасывал, и адаптер не блокировал ничего.
+    hso = out.get("hookSpecificOutput") if isinstance(out, dict) else None
+    check("codex: решение в обёртке hookSpecificOutput",
+          isinstance(hso, dict) and hso.get("permissionDecision") == "deny")
+    check("codex: hookEventName=PreToolUse внутри обёртки",
+          isinstance(hso, dict) and hso.get("hookEventName") == "PreToolUse")
+    check("codex: есть текст причины", bool((hso or {}).get("permissionDecisionReason")))
+    # deny_unknown_fields: любой лишний ключ роняет разбор всего ответа.
+    check("codex: на верхнем уровне нет посторонних ключей",
+          isinstance(out, dict) and set(out) == {"hookSpecificOutput"})
+    check("codex: внутри обёртки только известные схеме ключи",
+          isinstance(hso, dict) and set(hso) <= {
+              "hookEventName", "permissionDecision", "permissionDecisionReason",
+              "updatedInput", "additionalContext"})
 
     # warning → без вывода (Codex не умеет ask), но журнал записан
     out_w, _ = run_codex("ALTER TABLE users DROP COLUMN email", tmp)
