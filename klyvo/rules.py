@@ -23,6 +23,8 @@ import json
 import os
 import re
 
+from klyvo.normalize import views
+
 CRITICAL = "critical"
 WARNING = "warning"
 
@@ -87,6 +89,13 @@ _RULES_RAW = [
     ("fs_rm_root", CRITICAL, r"\brm\b(?=[^;&|]*\s-[a-zA-Z]*[rR])[^;&|]*\s/\s*\*?\s*(?:$|[;&|])", "Рекурсивное удаление корня файловой системы"),
     ("fs_rm_home", CRITICAL, r"\brm\b(?=[^;&|]*\s-[a-zA-Z]*[rR])[^;&|]*\s(?:~|\$\{?HOME\}?|\"\$HOME\"|'\$HOME')/?\s*\*?\s*(?:$|[;&|])", "Рекурсивное удаление домашнего каталога"),
     ("fs_rm_cwd", WARNING, r"\brm\b(?=[^;&|]*\s-[a-zA-Z]*[rR])[^;&|]*\s(?:\.|\./|\*)\s*(?:$|[;&|])", "Рекурсивное удаление всего текущего каталога"),
+    # find обходит правила на rm: удаляет он сам, слова rm в команде нет.
+    ("find_delete_data", CRITICAL,
+     r"\bfind\b[^;&|]*-name[^;&|]*\.(db|sqlite3?|rdb|dump|bak)[^;&|]*(-delete\b|-exec\s+rm\b)",
+     "Удаление файлов баз или бэкапов через find"),
+    ("find_delete_root", CRITICAL,
+     r"\bfind\s+(/|~|\$\{?HOME\}?)\s[^;&|]*(-delete\b|-exec\s+rm\b)",
+     "Массовое удаление от корня или домашнего каталога через find"),
     ("fs_disk_wipe", CRITICAL, r"\bmkfs(\.\w+)?\s+/dev/|\bdd\s[^;&|]*\bof=/dev/(sd|nvme|hd|vd|disk)", "Затирание диска целиком (mkfs / dd на устройство)"),
 
     # ── NoSQL ───────────────────────────────────────────────────────────────
@@ -122,7 +131,7 @@ HEURISTIC_UPDATE = "sql_update_no_where"
 
 # Предикаты WHERE, которые фактически ничего не фильтруют (истинны всегда).
 _TRIVIAL_WHERE = re.compile(
-    r"\bWHERE\s+(1\s*=\s*1|true|'?1'?\s*=\s*'?1'?|'([^']*)'\s*=\s*'\2')\b", re.I)
+    r"\bWHERE\s+(1\s*=\s*1|true|'?1'?\s*=\s*'?1'?|'([^']*)'\s*=\s*'\2')(?!\w)", re.I)
 
 
 def load_config(base_dir):
@@ -172,6 +181,18 @@ def _is_allowlisted(command, config):
     return False
 
 
+# Расширения исходников и данных: то, что стоит после FROM с таким хвостом, —
+# аргумент команды, а не таблица.
+_SOURCE_FILE = re.compile(
+    r"^[\w./~-]*\.(py|pyc|js|jsx|mjs|ts|tsx|go|rb|java|php|rs|c|h|cpp|cs|swift|kt|"
+    r"sh|bash|zsh|sql|json|ya?ml|toml|ini|cfg|md|rst|txt|log|csv|tsv|html?|css|jsonl)$",
+    re.I)
+
+
+def _looks_like_file(token: str) -> bool:
+    return bool(_SOURCE_FILE.match(token.strip("\"'`,;()")))
+
+
 def _has_effective_where(stmt: str) -> bool:
     if not re.search(r"\bWHERE\b", stmt, re.I):
         return False
@@ -186,11 +207,13 @@ def _scan_where_heuristics(command: str, disabled):
     # `DELETE FROM x\n WHERE ...` ложно определится как «без WHERE».
     for stmt in command.split(";"):
         if HEURISTIC_DELETE not in disabled:
-            if re.search(r"\bDELETE\s+FROM\s+\S+", stmt, re.I) and not _has_effective_where(stmt):
+            m = re.search(r"\bDELETE\s+FROM\s+(\S+)", stmt, re.I)
+            if m and not _looks_like_file(m.group(1)) and not _has_effective_where(stmt):
                 findings.append((HEURISTIC_DELETE, CRITICAL,
                                  "Удаление строк без ограничивающего WHERE (сотрёт всю таблицу)"))
         if HEURISTIC_UPDATE not in disabled:
-            if re.search(r"\bUPDATE\s+\S+\s+SET\b", stmt, re.I) and not _has_effective_where(stmt):
+            m = re.search(r"\bUPDATE\s+(\S+)\s+SET\b", stmt, re.I)
+            if m and not _looks_like_file(m.group(1)) and not _has_effective_where(stmt):
                 findings.append((HEURISTIC_UPDATE, CRITICAL,
                                  "Массовое обновление без ограничивающего WHERE"))
     return findings
@@ -200,14 +223,37 @@ def scan(command: str, config=None):
     """Возвращает список находок: (name, severity, description).
 
     config — dict из load_config(). Команды из allowlist не сканируются.
+
+    Проверяется не только исходный текст, но и развёрнутые представления
+    (klyvo.normalize.views): снятые кавычки, подставленные переменные,
+    расшифрованный base64. Без этого сигнатуры обходились склейкой строк, а
+    обещание «работает и в auto-approve» держалось только на добросовестности
+    агента. Каждое правило попадает в результат один раз, каким бы
+    представлением оно ни было найдено.
     """
     config = config or {}
     if _is_allowlisted(command, config):
+        # Allowlist — явное решение человека по конкретной команде, и оно
+        # сильнее нормализации: разворачивать то, что уже разрешено, незачем.
         return []
     disabled = set(config.get("disabled_rules", []) or [])
+    rules = effective_rules(config)
     findings = []
-    for name, severity, pattern, description in effective_rules(config):
-        if pattern.search(command):
+    seen = set()
+    for text in views(command):
+        for name, severity, description in _scan_text(text, rules, disabled):
+            if name in seen:
+                continue
+            seen.add(name)
             findings.append((name, severity, description))
-    findings.extend(_scan_where_heuristics(command, disabled))
     return findings
+
+
+def _scan_text(text, rules, disabled):
+    """Одно представление против всех правил и эвристик."""
+    found = []
+    for name, severity, pattern, description in rules:
+        if pattern.search(text):
+            found.append((name, severity, description))
+    found.extend(_scan_where_heuristics(text, disabled))
+    return found
