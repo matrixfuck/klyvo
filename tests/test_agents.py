@@ -92,7 +92,11 @@ with tempfile.TemporaryDirectory() as tmp:
     text = open(conf, encoding="utf-8").read()
     check("kimi-install: есть [[hooks]]", "[[hooks]]" in text)
     check("kimi-install: guard.py и journal.py", "guard.py" in text and "journal.py" in text)
-    check("kimi-install: PreToolUse+Bash", 'event = "PreToolUse"' in text and 'matcher = "Bash"' in text)
+    # Матчер фильтрует по tool_name, а shell-инструмент в Kimi называется Shell —
+    # см. docs/en/customization/hooks.md у MoonshotAI/kimi-cli. С matcher = "Bash"
+    # хук не срабатывал вообще, потому что инструмента с таким именем там нет.
+    check("kimi-install: PreToolUse и матчер ловит Shell",
+          'event = "PreToolUse"' in text and 'Shell' in text)
     install_hooks.main(["--tool", "kimi", "--path", conf])  # повтор
     check("kimi-install: идемпотентно (2 блока)", open(conf, encoding="utf-8").read().count("[[hooks]]") == 2)
     install_hooks.main(["--tool", "kimi", "--path", conf, "--uninstall"])

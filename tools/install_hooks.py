@@ -181,7 +181,7 @@ def _ensure_codex_flag(config_toml):
 
 # ── Kimi Code (TOML [[hooks]]) ───────────────────────────────────────────────
 _KIMI_BLOCKS = (
-    f'\n[[hooks]]\nevent = "PreToolUse"\nmatcher = "Bash"\ncommand = "{CLAUDE_GUARD}"\n'
+    f'\n[[hooks]]\nevent = "PreToolUse"\nmatcher = "Shell|Bash"\ncommand = "{CLAUDE_GUARD}"\n'
     f'\n[[hooks]]\nevent = "PostToolUse"\ncommand = "{CLAUDE_JOURNAL}"\n'
 )
 
