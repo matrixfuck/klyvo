@@ -104,7 +104,12 @@ def render(actions, blocked, session_label):
             if len(oneline) > 80:
                 oneline = oneline[:77] + "..."
             lines.append(f"  • {oneline}")
-            lines.append(f"    └ {reasons} — потребовано подтверждение")
+            # Решение лежит в записи журнала. Раньше здесь стояла фраза про
+            # подтверждение независимо от него, и жёсткая блокировка выглядела
+            # в сводке так же, как обычный запрос — то есть сводка врала.
+            outcome = ("заблокировано" if b.get("decision") == "deny"
+                       else "потребовано подтверждение")
+            lines.append(f"    └ {reasons} — {outcome}")
         lines.append("")
     else:
         lines.append("⚠ Опасных операций с данными не перехвачено.")

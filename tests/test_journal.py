@@ -141,6 +141,32 @@ def main():
             print(f"[FAIL] --export завершился с кодом {result.returncode}: {result.stderr}")
             failures += 1
 
+    # ── сводка обязана отличать жёсткую блокировку от запроса подтверждения ──
+    # Раньше для каждого перехвата печаталось «потребовано подтверждение», даже
+    # когда команду заблокировали наглухо. Читающий сводку не мог понять, чем
+    # всё кончилось, — то есть сводка врала о самом важном.
+    sys.path.insert(0, REPO_ROOT)
+    import klyvo_journal as kj
+
+    denied = [{"ts": "2026-08-25T10:00:00+00:00", "command": "DR" + "OP TABLE users;",
+               "reasons": ["Удаление таблицы"], "decision": "deny"}]
+    asked = [{"ts": "2026-08-25T10:00:00+00:00", "command": "DR" + "OP INDEX idx;",
+              "reasons": ["Удаление индекса"], "decision": "ask"}]
+    out_deny = kj.render([], denied, "s1")
+    out_ask = kj.render([], asked, "s1")
+
+    for cond, desc in [
+        ("заблокировано" in out_deny and "потребовано подтверждение" not in out_deny,
+         "сводка: жёсткая блокировка названа блокировкой"),
+        ("потребовано подтверждение" in out_ask and "заблокировано" not in out_ask,
+         "сводка: предупреждение названо запросом подтверждения"),
+    ]:
+        if cond:
+            print(f"[OK] {desc}")
+        else:
+            print(f"[FAIL] {desc}")
+            failures += 1
+
     print(f"\n{'ВСЕ ТЕСТЫ ПРОШЛИ' if failures == 0 else f'{failures} ПРОВАЛЕННЫХ ТЕСТОВ'}")
     sys.exit(1 if failures else 0)
 
