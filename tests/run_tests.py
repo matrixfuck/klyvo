@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Симулирует PreToolUse-вызовы guard.py и проверяет решения."""
+import atexit
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -97,16 +100,23 @@ SAFE = [
 ]
 
 
+# Прогон живёт в своём временном каталоге. Раньше корнем был сам репозиторий, и
+# тесты стирали настоящий .klyvo/journal.jsonl — у того, кто пользуется Klyvo на
+# этом же проекте, прогон тестов уничтожал реальную историю перехватов.
+SANDBOX = tempfile.mkdtemp(prefix="klyvo-run-tests-")
+atexit.register(shutil.rmtree, SANDBOX, True)
+
+
 def run_case(command: str):
     payload = {
         "session_id": "test-session",
-        "cwd": REPO_ROOT,
+        "cwd": SANDBOX,
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": command},
     }
     env = dict(os.environ)
-    env["CLAUDE_PROJECT_DIR"] = REPO_ROOT
+    env["CLAUDE_PROJECT_DIR"] = SANDBOX
     result = subprocess.run(
         ["python3", GUARD], input=json.dumps(payload),
         capture_output=True, text=True, env=env,
@@ -123,9 +133,7 @@ def run_case(command: str):
 
 
 def main():
-    journal = os.path.join(REPO_ROOT, ".klyvo", "journal.jsonl")
-    if os.path.exists(journal):
-        os.remove(journal)
+    journal = os.path.join(SANDBOX, ".klyvo", "journal.jsonl")
 
     failures = 0
 

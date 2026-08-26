@@ -68,12 +68,20 @@ def bash(cmd):
 cases = [
     dict(name="critical", **bash("psql -c 'DR" + "OP TABLE users'")),
     dict(name="safe", **bash("ls -la /tmp")),
+    dict(name="warning", **bash("rm -rf .")),
     dict(name="other_tool", input={"tool": "read"}, output={"args": {"command": "psql -c 'DR" + "OP TABLE users'"}}),
     dict(name="no_command", input={"tool": "bash"}, output={"args": {}}),
     dict(name="empty_input", input=None, output=None),
 ]
 
-proc = subprocess.run([NODE, driver, json.dumps(cases)],
+# cwd задаём явно: плагин зовёт ядро с --log, и журнал ляжет туда, откуда
+# запущен node. Без этого прогон тестов дописывал бы записи в настоящий журнал
+# того, кто их запускает.
+project = os.path.join(work, "project")
+os.makedirs(project, exist_ok=True)
+env = dict(os.environ)
+env.pop("CLAUDE_PROJECT_DIR", None)   # иначе корнем станет чужой проект
+proc = subprocess.run([NODE, driver, json.dumps(cases)], cwd=project, env=env,
                       capture_output=True, text=True, timeout=60)
 if proc.returncode != 0:
     print("[FAIL] плагин не исполнился в node")
@@ -86,6 +94,20 @@ check("разрушительная команда заблокирована", 
 check("в тексте блокировки названа причина",
       "Klyvo" in res.get("critical", "") and len(res.get("critical", "")) > len("blocked: Klyvo заблокировал разрушительную команду: "))
 check("безопасная команда проходит", res.get("safe") == "passed")
+# В tool.execute.before подтверждение не выразить — только пропустить или
+# прервать. Прерывать warning слишком грубо, поэтому он проходит, но не молча.
+check("warning проходит, а не блокируется", res.get("warning") == "passed")
+check("про warning сказано в stderr", "Klyvo" in proc.stderr)
+
+# Журнал: без него у opencode работала бы только блокировка, а измерение — нет.
+jpath = os.path.join(project, ".klyvo", "journal.jsonl")
+check("журнал создан в проекте", os.path.exists(jpath))
+entries = ([json.loads(l) for l in open(jpath, encoding="utf-8").read().splitlines() if l.strip()]
+           if os.path.exists(jpath) else [])
+check("в журнале указан инструмент opencode",
+      bool(entries) and all(e.get("tool") == "opencode" for e in entries))
+check("в журнал попали и блокировка, и предупреждение",
+      {e.get("decision") for e in entries} == {"deny", "ask"})
 check("чужой инструмент (не bash) не трогаем", res.get("other_tool") == "passed")
 check("вызов без команды не роняет плагин", res.get("no_command") == "passed")
 # Хук стоит в горячем пути агента: любая наша ошибка не должна валить чужую сессию.

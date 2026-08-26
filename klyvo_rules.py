@@ -59,8 +59,14 @@ def cmd_test(args):
 
 
 def cmd_scan(args):
-    """Машиночитаемый результат для адаптеров (напр. плагина opencode)."""
-    findings = scan(args.command, load_config(base_dir()))
+    """Машиночитаемый результат для адаптеров (напр. плагина opencode).
+
+    С --log находка ещё и попадает в журнал проекта. Без этого у адаптеров,
+    которые ходят через CLI, работает только блокировка: сводка сессии,
+    дашборд и --export остаются пустыми, хотя команды перехватывались.
+    """
+    root = base_dir()
+    findings = scan(args.command, load_config(root))
     decision = "allow"
     if findings:
         decision = "deny" if any(sev == CRITICAL for _, sev, _ in findings) else "ask"
@@ -68,6 +74,14 @@ def cmd_scan(args):
         "decision": decision,
         "findings": [{"name": n, "severity": s, "description": d} for n, s, d in findings],
     }, ensure_ascii=False))
+    if findings and getattr(args, "log", False):
+        try:
+            from klyvo.adapter import log_finding
+            log_finding(root, args.command, findings, tool=args.tool,
+                        decision=decision, cwd=os.getcwd())
+        except Exception as e:
+            # Журнал не критичен: решение уже напечатано и адаптер его получил.
+            sys.stderr.write(f"klyvo: не смог записать журнал ({e})\n")
     return 0
 
 
@@ -178,6 +192,10 @@ def main(argv=None):
     t.add_argument("command", help="команда для проверки")
     s = sub.add_parser("scan", help="проверить команду, вывести JSON (decision + findings)")
     s.add_argument("command", help="команда для проверки")
+    s.add_argument("--log", action="store_true",
+                   help="записать находку в журнал проекта (.klyvo/journal.jsonl)")
+    s.add_argument("--tool", default="cli",
+                   help="каким инструментом вызвано (попадёт в журнал)")
     sub.add_parser("doctor", help="самопроверка: действительно ли guard работает")
     args = parser.parse_args(argv)
 

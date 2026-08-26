@@ -251,11 +251,17 @@ def _opencode_plugin_src():
         '      if (!input || input.tool !== "bash") return;\n'
         "      const cmd = output && output.args && output.args.command;\n"
         "      if (!cmd) return;\n"
-        '      const out = execFileSync("python3", [KLYVO_RULES, "scan", cmd], { encoding: "utf8" });\n'
+        '      const out = execFileSync("python3", [KLYVO_RULES, "scan", cmd, "--log", "--tool", "opencode"], { encoding: "utf8" });\n'
         "      const res = JSON.parse(out);\n"
+        '      const why = (res.findings || []).map((f) => f.description).join("; ");\n'
         '      if (res.decision === "deny") {\n'
-        '        const why = (res.findings || []).map((f) => f.description).join("; ");\n'
         '        throw new Error("Klyvo заблокировал разрушительную команду: " + why);\n'
+        "      }\n"
+        '      if (res.decision === "ask") {\n'
+        "        // В tool.execute.before нельзя спросить подтверждение — можно только\n"
+        "        // пропустить или прервать. Прерывать warning слишком грубо, поэтому\n"
+        "        // предупреждаем и оставляем след в журнале.\n"
+        '        console.warn("Klyvo: " + why + " — проверьте, что это намеренно.");\n'
         "      }\n"
         "    } catch (e) {\n"
         '      if (e && e.message && e.message.indexOf("Klyvo") === 0) throw e; // прокинуть блок\n'

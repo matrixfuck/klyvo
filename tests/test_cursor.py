@@ -50,6 +50,13 @@ with tempfile.TemporaryDirectory() as tmp:
     check("критичная: есть user_message и agent_message (snake_case, как ждёт Cursor)",
           isinstance(out, dict) and out.get("user_message") and out.get("agent_message"))
 
+    # Ровно три поля — не больше. Лишнее поле не может помочь, а стоить может
+    # всей блокировки: если Cursor когда-нибудь начнёт отвергать ответ с
+    # неизвестными ключами, guard молча перестанет работать, как было с Codex.
+    check("критичная: в ответе ровно задокументированные поля, без лишних",
+          isinstance(out, dict)
+          and set(out) == {"permission", "user_message", "agent_message"})
+
     # warning-команда → permission ask (мягкое подтверждение)
     out_w, code_w = run("ALTER TABLE users DROP COLUMN email", tmp)
     check("warning: permission == ask", isinstance(out_w, dict) and out_w.get("permission") == "ask")

@@ -257,7 +257,7 @@ python3 ~/klyvo/klyvo_rules.py doctor
 
 ## Версия
 
-Klyvo в бете, v0.8.0. Основное уже работает: перехват с блокировкой критичного,
+Klyvo в бете, v0.8.1. Основное уже работает: перехват с блокировкой критичного,
 запрос подтверждения на предупреждения, журнал сессии, веб-дашборд с входом
 (вкладки, поиск, фильтры, панель правил), лендинг [klyvo.tech](https://klyvo.tech),
 адаптеры под 6 агентов. Дальше будет много обновлений. Историю версий смотрите
@@ -282,9 +282,9 @@ Klyvo в бете, v0.8.0. Основное уже работает: перех�
 | Claude Code | `PreToolUse`/`PostToolUse`, `install_hooks.py` | ✅ подтверждено вживую |
 | DeepSeek-Code и форки Claude Code (Langcli, Crush, Oh My Pi) | тот же контракт хуков, `--tool deepseek-code` или `--tool claude-compatible --path <settings.json>` | 🟡 тот же контракт хуков, что у Claude Code — живой тест впереди |
 | Kimi Code CLI | `[[hooks]]` в `config.toml`, тот же `guard.py` (формат хуков как у Claude Code), `--tool kimi` | 🟡 по официальной спеке хуков — живой тест впереди |
-| Codex CLI | свой адаптер (плоский `deny`), `hooks.json` + флаг `codex_hooks`, `--tool codex` | 🟡 свой адаптер под формат Codex — живой тест впереди |
-| Cursor | `beforeShellExecution`, `--tool cursor` | 🟡 по спеке `beforeShellExecution` — живой тест впереди |
-| opencode | плагин на JS (`tool.execute.before`), зовёт ядро правил, `--tool opencode` | 🟡 экспериментальный JS-плагин — живой тест впереди |
+| Codex CLI | свой адаптер (`hookSpecificOutput`, как требует схема), `hooks.json` + флаг `codex_hooks`, `--tool codex` | 🟡 сверено с исходниками `codex-rs` — живой тест впереди |
+| Cursor | `beforeShellExecution`, ответ ровно из трёх задокументированных полей, `--tool cursor` | 🟡 сверено с текущей документацией Cursor — живой тест впереди |
+| opencode | плагин на JS (`tool.execute.before`), зовёт ядро правил и пишет журнал, `--tool opencode` | 🟡 критичное блокируется, warning только предупреждает — в этом хуке подтверждение не выразить |
 | Агенты на Codex-архитектуре (DeepSeek-TUI, Reasonix) | свой формат хуков | ⛔ пока не поддержаны — другой формат хуков |
 
 Установщик вычисляет пути от расположения репозитория, поэтому работает из любой
