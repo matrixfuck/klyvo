@@ -281,7 +281,7 @@ Klyvo в бете, v0.8.1. Основное уже работает: перех�
 |---|---|---|
 | Claude Code | `PreToolUse`/`PostToolUse`, `install_hooks.py` | ✅ подтверждено вживую |
 | DeepSeek-Code и форки Claude Code (Langcli, Crush, Oh My Pi) | тот же контракт хуков, `--tool deepseek-code` или `--tool claude-compatible --path <settings.json>` | 🟡 тот же контракт хуков, что у Claude Code — живой тест впереди |
-| Kimi Code CLI | `[[hooks]]` в `config.toml`, тот же `guard.py` (формат хуков как у Claude Code), `--tool kimi` | 🟡 по официальной спеке хуков — живой тест впереди |
+| Kimi Code CLI | `[[hooks]]` в `config.toml`, `matcher = "Shell"`, тот же `guard.py` | 🟡 сверено с документацией Kimi: контракт совпадает с Claude Code — живой тест впереди |
 | Codex CLI | свой адаптер (`hookSpecificOutput`, как требует схема), `hooks.json` + флаг `codex_hooks`, `--tool codex` | 🟡 сверено с исходниками `codex-rs` — живой тест впереди |
 | Cursor | `beforeShellExecution`, ответ ровно из трёх задокументированных полей, `--tool cursor` | 🟡 сверено с текущей документацией Cursor — живой тест впереди |
 | opencode | плагин на JS (`tool.execute.before`), зовёт ядро правил и пишет журнал, `--tool opencode` | 🟡 критичное блокируется, warning только предупреждает — в этом хуке подтверждение не выразить |
