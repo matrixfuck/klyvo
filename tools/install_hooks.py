@@ -293,16 +293,51 @@ def run_opencode(path, uninstall, dry_run):
     return 0
 
 
+# Как агента называет человек → как он называется здесь. Список не про полноту,
+# а про то, что люди печатают по памяти, не сверяясь с README.
+TOOL_ALIASES = {
+    "claude-code": "claude", "claudecode": "claude", "cc": "claude",
+    "deepseek": "deepseek-code", "deepseek_code": "deepseek-code",
+    "kimi-code": "kimi", "kimicode": "kimi",
+    "codex-cli": "codex",
+    "cursor-agent": "cursor", "cursor-cli": "cursor",
+    "open-code": "opencode", "sst-opencode": "opencode",
+    "compatible": "claude-compatible", "fork": "claude-compatible",
+}
+
+
+def resolve_tool(name):
+    """Привести написание агента к каноническому. None — если не узнали."""
+    key = (name or "").strip().lower().replace(" ", "-")
+    if key in DEFAULT_PATH:
+        return key
+    return TOOL_ALIASES.get(key)
+
+
 HANDLERS_SPECIAL = {"kimi": run_kimi, "opencode": run_opencode}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Установка хуков Klyvo")
-    parser.add_argument("--tool", choices=list(DEFAULT_PATH), default="claude")
+    # choices специально не задаём: argparse на незнакомое значение печатает
+    # usage и выходит с кодом 2, а из `curl … | sh` это читается как поломка
+    # установщика. Разбираем сами и объясняем по-человечески.
+    parser.add_argument("--tool", default="claude")
     parser.add_argument("--path")
     parser.add_argument("--uninstall", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+
+    tool = resolve_tool(args.tool)
+    if tool is None:
+        print(f"✗ Не знаю агента «{args.tool}».")
+        print("  Поддерживаются: " + ", ".join(DEFAULT_PATH))
+        print("  Если ваш агент — форк Claude Code, поставьте так:")
+        print("    --tool claude-compatible --path ~/.ваш-агент/settings.json")
+        return 1
+    if tool != args.tool:
+        print(f"(«{args.tool}» — это {tool})")
+    args.tool = tool
 
     path = args.path or DEFAULT_PATH.get(args.tool)
     if not path:

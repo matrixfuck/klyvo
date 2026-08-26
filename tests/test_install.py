@@ -78,5 +78,28 @@ with tempfile.TemporaryDirectory() as tmp:
     cfg3 = load(p3)
     check("существующие ключи сохранены", cfg3.get("model") == "custom" and cfg3["env"]["FOO"] == "bar")
 
+    # ── имя агента: то, что человек напечатал, а не то, что в README ──
+    # `curl … | sh -s -- deepseek` раньше отдавал argparse-usage и код 2 —
+    # в первые тридцать секунд знакомства это читается как поломка установщика.
+    check("«deepseek» понимается как deepseek-code",
+          install_hooks.resolve_tool("deepseek") == "deepseek-code")
+    check("«claude-code» понимается как claude",
+          install_hooks.resolve_tool("Claude-Code") == "claude")
+    check("«kimi-code» понимается как kimi",
+          install_hooks.resolve_tool("kimi-code") == "kimi")
+    check("каноническое имя не ломается",
+          install_hooks.resolve_tool("cursor") == "cursor")
+    check("незнакомый агент честно не узнаётся",
+          install_hooks.resolve_tool("windsurf") is None)
+
+    rc = install_hooks.main(["--tool", "windsurf"])
+    check("незнакомый агент: код 1, а не падение argparse", rc == 1)
+
+    p4 = os.path.join(tmp, "alias", "settings.json")
+    rc = install_hooks.main(["--tool", "deepseek", "--path", p4])
+    check("установка по псевдониму работает", rc == 0 and os.path.exists(p4))
+    check("по псевдониму подключён тот же guard",
+          any(c.endswith("guard.py") for c in commands(load(p4))))
+
 print(f"\n{'ВСЕ ТЕСТЫ ПРОШЛИ' if failures == 0 else f'{failures} ПРОВАЛЕННЫХ ТЕСТОВ'}")
 sys.exit(1 if failures else 0)
